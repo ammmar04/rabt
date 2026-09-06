@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  archiveItem, createItem, getItem, itemIdExists, nextItemId,
+  archiveItem, createItem, getItem, nextItemId,
   saveSettings, setItemStatus, setRequestStatus, updateItem,
 } from "@/lib/queries";
 import { checkPassword, endSession, requireAdmin, startSession } from "@/lib/auth";
+import { clientKey, hit } from "@/lib/ratelimit";
 import { saveUpload } from "@/lib/storage";
 import type { ItemInput } from "@/lib/queries";
 import type { Settings, Status } from "@/lib/types";
@@ -15,9 +16,18 @@ const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
 
 /* ------------------------------------------------------------ sign in/out */
 export async function signIn(_prev: unknown, fd: FormData): Promise<{ error?: string }> {
+  // Throttle before doing any work: 8 attempts per 10 minutes per address.
+  const key = await clientKey("signin");
+  const limit = hit(key, 8, 10 * 60_000);
+  if (!limit.ok) {
+    return {
+      error: `Too many attempts. Try again in about ${Math.ceil(limit.retryAfterSec / 60)} minute(s).`,
+    };
+  }
+
   const password = String(fd.get("password") ?? "");
-  // small constant delay to blunt brute forcing
-  await new Promise((r) => setTimeout(r, 350));
+  // small constant delay to blunt fast guessing
+  await new Promise((r) => setTimeout(r, 400));
   if (!checkPassword(password)) return { error: "That password is not right." };
   await startSession();
   redirect("/admin");
@@ -92,9 +102,20 @@ export async function saveItem(_prev: unknown, fd: FormData): Promise<SaveResult
   if (existing) {
     await updateItem(existing.id, itemFromForm(fd, existing.id, imageUrl, detailUrl));
   } else {
-    let id = str(fd, "custom_id") || (await nextItemId(category));
-    if (await itemIdExists(id)) id = await nextItemId(category);
-    await createItem(itemFromForm(fd, id, imageUrl, detailUrl));
+    // Two people adding at once could pick the same id, so retry on collision
+    // rather than showing them a database error.
+    let saved = false;
+    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+      const id = await nextItemId(category);
+      try {
+        await createItem(itemFromForm(fd, id, imageUrl, detailUrl));
+        saved = true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (!/duplicate key|unique constraint/i.test(msg)) throw e;
+      }
+    }
+    if (!saved) return { error: "Could not allocate an item number. Please try again." };
   }
 
   revalidatePath("/", "layout");

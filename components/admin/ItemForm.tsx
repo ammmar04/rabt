@@ -51,7 +51,7 @@ function PhotoField({
         id={name}
         name={name}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/avif,image/svg+xml"
+        accept="image/jpeg,image/png,image/webp,image/avif,image/heic"
         hidden
         onChange={(e) => take(e.target.files)}
       />
@@ -80,7 +80,7 @@ export default function ItemForm({
           <PhotoField
             name="photo"
             label="Photo"
-            hint="The main image shoppers see. Portrait works best (roughly 4:5). Max 8 MB."
+            hint="The main image shoppers see. Portrait works best (roughly 4:5). JPG, PNG, WebP or HEIC, up to 8 MB."
             existing={item?.image_url}
           />
           <PhotoField

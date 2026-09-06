@@ -11,14 +11,30 @@ import { join } from "node:path";
 
 const isProd = process.env.NODE_ENV === "production";
 
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/avif", "image/svg+xml"]);
+/**
+ * SVG is deliberately NOT accepted. An SVG can contain <script>, which would
+ * be a stored cross-site-scripting hole the moment it is served from a domain
+ * we trust. Photographs do not need it.
+ */
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB
 
-function extFor(type: string, name: string): string {
-  const fromName = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  if (fromName && /^[a-z0-9]{2,5}$/.test(fromName)) return fromName;
-  return { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
-           "image/avif": "avif", "image/svg+xml": "svg" }[type] ?? "jpg";
+type Kind = { ext: string; mime: string };
+
+/** Identify the file from its actual bytes — file.type is set by the client. */
+function sniff(buf: Buffer): Kind | null {
+  const at = (i: number, sig: number[]) => sig.every((b, n) => buf[i + n] === b);
+  if (buf.length < 12) return null;
+  if (at(0, [0xff, 0xd8, 0xff])) return { ext: "jpg", mime: "image/jpeg" };
+  if (at(0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { ext: "png", mime: "image/png" };
+  if (at(0, [0x52, 0x49, 0x46, 0x46]) && at(8, [0x57, 0x45, 0x42, 0x50]))
+    return { ext: "webp", mime: "image/webp" };
+  // ISO-BMFF: ....ftyp{avif|avis|heic}
+  if (at(4, [0x66, 0x74, 0x79, 0x70])) {
+    const brand = buf.toString("ascii", 8, 12);
+    if (brand === "avif" || brand === "avis") return { ext: "avif", mime: "image/avif" };
+    if (brand.startsWith("hei") || brand.startsWith("mif")) return { ext: "heic", mime: "image/heic" };
+  }
+  return null;
 }
 
 function slug(s: string): string {
@@ -32,18 +48,25 @@ export function blobConfigured(): boolean {
 /** Validates and stores one uploaded image, returning a URL to render. */
 export async function saveUpload(file: File, prefix = "item"): Promise<string> {
   if (!file || file.size === 0) throw new Error("No file was uploaded.");
-  if (file.size > MAX_BYTES) throw new Error("That image is larger than 8 MB. Please pick a smaller one.");
-  if (!ALLOWED.has(file.type)) {
-    throw new Error("Please upload a JPG, PNG, WebP or SVG image.");
+  if (file.size > MAX_BYTES) {
+    throw new Error("That image is larger than 8 MB. Please pick a smaller one.");
   }
 
-  const name = `${slug(prefix)}-${Date.now().toString(36)}.${extFor(file.type, file.name)}`;
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const kind = sniff(bytes);
+  if (!kind) {
+    throw new Error("That file is not a photo we recognise. Please upload a JPG, PNG, WebP or HEIC image.");
+  }
+
+  const name = `${slug(prefix)}-${Date.now().toString(36)}.${kind.ext}`;
 
   if (blobConfigured()) {
     const { put } = await import("@vercel/blob");
-    const blob = await put(`items/${name}`, file, {
+    const blob = await put(`items/${name}`, bytes, {
       access: "public",
-      contentType: file.type,
+      contentType: kind.mime,
+      // never let a caller-supplied name collide with or overwrite another
+      addRandomSuffix: true,
     });
     return blob.url;
   }
@@ -57,6 +80,6 @@ export async function saveUpload(file: File, prefix = "item"): Promise<string> {
 
   const dir = join(process.cwd(), "public", "uploads");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, name), Buffer.from(await file.arrayBuffer()));
+  await writeFile(join(dir, name), bytes);
   return `/uploads/${name}`;
 }

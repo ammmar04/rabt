@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 80" role="img" aria-label="Rabt">
+  <!-- PLACEHOLDER wordmark. Replace this file with the real Rabt logo (same filename),
+       then swap the .brand span for <img src="assets/img/logo.svg" alt="Rabt"> in the header. -->
+  <text x="0" y="56" font-family="Georgia, 'Times New Roman', serif" font-size="58"
+        font-weight="600" letter-spacing="-1" fill="#23241F">Rabt</text>
+  <circle cx="132" cy="50" r="7" fill="#5B6B41"/>
+</svg>

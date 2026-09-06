@@ -25,8 +25,8 @@ declare global {
 function splitStatements(script: string): string[] {
   return script
     .split(/;\s*$/m)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !/^--/.test(s));
+    .map((s) => s.replace(/^\s*--.*$/gm, "").trim())
+    .filter((s) => s.length > 0);
 }
 
 async function makeNeon(url: string): Promise<Runner> {

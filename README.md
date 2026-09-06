@@ -6,124 +6,119 @@ A shared wardrobe of formal clothing for a university community. Anyone can borr
 no eligibility check, no proof of need, no explaining why. Built to read as a
 well-designed clothing service that happens to be free, not as a charity portal.
 
-Static site: plain HTML, CSS and vanilla JS. No build step, no framework, no backend
-required to run.
+Next.js app with a real database, photo uploads and an admin portal, so the team
+running it can add, edit and remove items without touching code or redeploying.
 
 ---
 
-## Before it goes live — things to replace
+## Running it locally
 
-These are placeholders and **must be swapped for real values**:
-
-| What | Where |
-|---|---|
-| WhatsApp number, email, Instagram handle | `data/inventory.json` → `config.contact` |
-| Bank / payment details for contributions | `data/inventory.json` → `config.contribution.account` |
-| The real Rabt logo | `assets/img/logo.svg` (placeholder wordmark) — see below |
-| Collection time slots & closed days | `data/inventory.json` → `config.slots`, `config.closedDays` |
-| Item photos | `assets/img/items/` — see "Imagery" below |
-
-### Using the real logo
-
-The header currently renders the wordmark as text so it uses the real webfont.
-To drop in the actual logo, replace the marked `<span>` in `scripts/build_pages.py`
-(function `brand()`) with:
-
-```html
-<img src="assets/img/logo.svg" alt="Rabt">
+```bash
+npm install
+npm run dev          # http://localhost:3000
 ```
 
-then re-run `python3 scripts/build_pages.py`. The CSS already sizes `.brand img`.
+That is genuinely all — no database to provision. With no `DATABASE_URL` set the app
+runs on **PGlite** (Postgres in-process, stored in `./.data`) and seeds itself from
+`data/inventory.json`. Photos you upload go into `public/uploads`.
 
----
+The admin portal is at **/admin**. Locally, with no `ADMIN_PASSWORD` set, the
+password is `rabt-dev`.
+
+## How the team manages the wardrobe
+
+Everything happens at **/admin** — no spreadsheets, no code, no redeploys.
+
+| To… | Do this |
+|---|---|
+| Add an item | **Items → Add item**, drag in a photo, fill the form, save. It is live immediately. |
+| Edit an item | **Items →** click the item name. |
+| Remove an item | **Items → Remove.** It disappears from the public site; past requests keep their history. |
+| Mark something borrowed / back | **Items →** the *Set availability* dropdown. Saves on change. |
+| Move a request along | **Requests →** the *Status* dropdown (Request received → … → Returned). The borrower's My Rabt page updates too. |
+| Change contact or payment details | **Settings.** These feed the public site directly. |
+
+Item IDs (`R-206`) are assigned automatically per category.
+
+## Going live on Vercel
+
+1. Import the repo at [vercel.com/new](https://vercel.com/new).
+2. **Storage → Neon** — create a Postgres database. Vercel sets `DATABASE_URL`.
+3. **Storage → Blob** — create a Blob store. Vercel sets `BLOB_READ_WRITE_TOKEN`.
+4. **Settings → Environment Variables** — add `ADMIN_PASSWORD` (pick a strong one and
+   share it with the team).
+5. Deploy.
+
+Tables are created on first request, and an empty database seeds itself from
+`data/inventory.json` so the site is never blank on day one.
+
+Two deliberate safety behaviours:
+
+- With no `ADMIN_PASSWORD` in production, `/admin` is **locked**, not open.
+- With no `DATABASE_URL` or Blob token in production, the app says so plainly rather
+  than silently writing somewhere that will vanish.
 
 ## Structure
 
 ```
-index.html            Home — hero, categories, available now, how it works, contribute
-catalogue.html        Full wardrobe + filters (type, size, availability, colour) + search
-item.html?id=R-101    Item page — images, sizes, measurements, condition, Borrow CTA
-borrow.html?id=R-101  The 4-step request flow
-dashboard.html        My Rabt — current / previous borrowings with status
-how-it-works.html     Four steps + practical questions
-about.html            Why Rabt works the way it does
-contribute.html       Contributing clothing
-privacy.html          What is collected, and what deliberately is not
-admin.html            Team view — inventory + incoming requests
+app/
+  page.tsx                home
+  catalogue/              browse + filters
+  item/[id]/              item page
+  borrow/[id]/            the 4-step request flow
+  dashboard/              My Rabt — borrower's own requests
+  how-it-works, about, contribute, privacy
+  admin/                  password-gated portal
+    page.tsx              requests + status
+    items/                list, add, edit
+    settings/             contact, payment, collection times
+  actions.ts              public server actions (submit + look up requests)
+  admin/actions.ts        admin server actions (all call requireAdmin)
 
-data/inventory.json   Single source of truth: config, categories, items
-data/sheets/*.csv     Column templates matching the Google Sheets backend
-assets/css/styles.css Design system (all tokens in one :root)
-assets/js/main.js     Source · assets/js/main.min.js is what pages load
-assets/img/           All imagery, generated as SVG
-scripts/              Generators for imagery and pages
+lib/
+  db.ts                   Neon in production, PGlite locally
+  queries.ts              every SQL query lives here
+  auth.ts                 admin password + signed session cookie
+  storage.ts              Vercel Blob, or local folder in dev
+  seed.ts                 first-run data from data/inventory.json
+  types.ts                shared types + helpers
+
+db/schema.sql             tables (idempotent)
+public/img/               the generated placeholder artwork
+scripts/gen_images.py     regenerates that artwork if you want more of it
 ```
 
-## One item per request
+## Design notes
 
-There is deliberately **no shopping cart**. Each piece has its own availability and
-preparation, so each borrowing is its own request. Wanting two things means going
-through the flow twice. The UI uses familiar language ("Borrow") without a multi-item
-checkout.
+- **One item per request, by design.** There is no basket. Each piece has its own
+  availability and preparation, so two items means two requests.
+- **No user accounts.** The borrower's dashboard works by remembering its own
+  reference numbers in the browser and asking the server for just those. Nothing
+  identifying is stored, and there are no public lists of who borrowed what.
+- **Unavailable items stay visible** so people can see the whole wardrobe, but are
+  clearly marked and cannot be requested.
 
-## The borrowing flow
+## Photos
 
-1. **Size** — with a "not sure about your size?" helper
-2. **When** — the coming seven days plus a time slot (closed days are disabled)
-3. **Contact** — WhatsApp, email or a secondary account. Nothing else is asked for
-4. **Contribute** — clearly optional, skippable, and stated as such
+Items added through the portal use real uploaded photos (JPG, PNG, WebP or SVG, up
+to 8 MB). The pieces that shipped with the project use generated vector artwork so
+the catalogue is never full of broken images before the team has photographed
+anything. Replace them by editing each item and uploading a real photo.
 
-It ends with a reference number; the team confirms collection details over the chosen
-contact method.
+## Swapping in the real logo
 
-## Backend
+The header renders the wordmark as text. To use the actual logo, drop it at
+`public/img/logo.svg` and replace the marked `<span className="brand__mark">` in
+`components/Header.tsx` with:
 
-For the MVP, Google Sheets is the operational database. `data/sheets/` contains the
-column layout for the four sheets: **INVENTORY**, **REQUESTS**, **USERS**, **MAINTENANCE**.
-
-Everything that would talk to a server goes through `store.saveRequest()` in
-`assets/js/main.js`. To connect it:
-
-1. Publish a Google Apps Script web app that appends a row to the REQUESTS sheet.
-2. Set `ENDPOINT` at the top of `assets/js/main.js` to its URL.
-3. Re-minify (below).
-
-Requests then POST there as well as saving locally. Nothing else changes — the site is
-structured so a real backend can replace the sheet later without a redesign.
-
-Until then, `admin.html` reads the catalogue file and keeps request/availability
-changes in the browser it is used in. It has **no authentication** — treat it as a
-working shell, and put it behind real auth before relying on it.
-
-## Rebuilding
-
-```bash
-# after editing data/inventory.json
-python3 scripts/gen_images.py      # regenerate all SVG imagery
-python3 scripts/build_pages.py     # regenerate the HTML pages
-
-# after editing assets/js/main.js
-npx esbuild assets/js/main.js --minify --outfile=assets/js/main.min.js
+```tsx
+<img src="/img/logo.svg" alt="Rabt" />
 ```
 
-## Imagery
+## Notes for later
 
-All imagery is generated vector art (garments on hangers, drawn from the colour and
-pattern in `inventory.json`) so nothing can 404 into a broken placeholder and the
-whole set stays visually consistent. Files are tiny, which matters on phone data.
-
-To use real photography instead, drop a `4:5` image at
-`assets/img/items/<ITEM-ID>.svg|jpg` and adjust the extension in the `itemCard()` and
-`initItem()` functions in `assets/js/main.js`.
-
-## Local preview
-
-```bash
-python3 -m http.server 8124
-# open http://localhost:8124
-```
-
-## Deploy
-
-Zero-config static site — import the repo into Vercel (or any static host) with no
-framework preset, build command or output directory.
+- Admin is a single shared password, which suits a small team. If you outgrow that
+  and want per-person logins, `lib/auth.ts` is the only file that needs replacing
+  (Clerk drops in cleanly here).
+- `data/inventory.json` is only a first-run seed. Once the database has data, it is
+  ignored — the database is the source of truth.

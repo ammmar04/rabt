@@ -14,3 +14,16 @@ __pycache__/
 
 # scratch / preview artifacts
 _*.html
+
+# Next.js
+/.next/
+/out/
+node_modules/
+.env*.local
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# local dev database + uploads
+/.data/
+/public/uploads/

@@ -53,7 +53,6 @@ export default async function AdminItems() {
                       options={(["available", "borrowed", "soon"] as const).map((v) => ({
                         value: v, label: STATUS_LABEL[v],
                       }))}
-                      width={150}
                     />
                   </td>
                   <td>

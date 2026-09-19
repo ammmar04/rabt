@@ -39,6 +39,11 @@ export default function StatusSelect({
     <select
       className="select"
       name={name}
+      // Uncontrolled, so the browser keeps the choice while the action runs.
+      // Re-keying on the saved value means a status changed elsewhere — by
+      // saving an expected return, say — still shows up here after the
+      // server re-renders, instead of leaving a stale label behind.
+      key={String(value)}
       defaultValue={String(value)}
       disabled={pending}
       style={{ minWidth: width ?? DEFAULT_WIDTH, opacity: pending ? 0.6 : 1 }}

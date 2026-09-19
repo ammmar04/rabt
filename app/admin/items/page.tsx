@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCategories, getItems } from "@/lib/queries";
-import { STATUS_LABEL, parseSizes } from "@/lib/types";
+import { STATUS_LABEL } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import StatusSelect from "@/components/admin/StatusSelect";
 import { quickStatus, removeItem } from "../actions";
@@ -14,7 +14,9 @@ export default async function AdminItems() {
   return (
     <>
       <div className="admin-actions">
-        <div className="label label--rule">Inventory &mdash; {items.length} item{items.length === 1 ? "" : "s"}</div>
+        <div className="label label--rule">
+          Inventory &mdash; {items.length} garment{items.length === 1 ? "" : "s"}
+        </div>
         <Link className="btn btn--primary" href="/admin/items/new">Add item</Link>
       </div>
 
@@ -23,7 +25,7 @@ export default async function AdminItems() {
           <table className="tbl">
             <thead>
               <tr>
-                <th></th><th>ID</th><th>Item</th><th>Category</th><th>Sizes</th>
+                <th></th><th>ID</th><th>Item</th><th>Category</th><th>Size</th>
                 <th>Colour</th><th>Status</th><th>Set availability</th><th></th>
               </tr>
             </thead>
@@ -41,7 +43,7 @@ export default async function AdminItems() {
                     </Link>
                   </td>
                   <td>{catName.get(it.category) ?? it.category}</td>
-                  <td>{parseSizes(it.sizes).join(", ")}</td>
+                  <td>{it.size || <span className="muted">&mdash;</span>}</td>
                   <td>{it.colour}</td>
                   <td><StatusBadge status={it.status} availableFrom={it.available_from} /></td>
                   <td>

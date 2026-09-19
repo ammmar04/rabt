@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { submitBorrowRequest } from "@/app/actions";
 import { rememberRef } from "@/lib/refs";
-import { fullDate, niceDate, parseSizes, type Item, type Settings } from "@/lib/types";
+import { fullDate, itemTitle, niceDate, type Item, type Settings } from "@/lib/types";
 
-const STEPS = ["Size", "When", "Contact", "Contribute"];
+/** No size step: the listing *is* one physical garment in one size. */
+const STEPS = ["When", "Contact", "Contribute"];
 
 const CONTACT_FIELDS: Record<string, [string, string]> = {
   WhatsApp: ["WhatsApp number", "e.g. 03xx xxxxxxx"],
@@ -19,19 +20,13 @@ const AMOUNTS = ["Rs 200", "Rs 500", "Rs 1,000", "Another amount", "Not this tim
 const COVERS = ["Dry cleaning", "Repairs and alterations", "Replacing worn pieces", "Storage and day-to-day running"];
 
 export default function BorrowFlow({ item, settings }: { item: Item; settings: Settings; }) {
-  const sizes = parseSizes(item.sizes);
-  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const preset = params?.get("size") ?? "";
-
-  const [step, setStep] = useState(preset && sizes.includes(preset) ? 1 : 0);
-  const [size, setSize] = useState(sizes.includes(preset) ? preset : "");
+  const [step, setStep] = useState(0);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [method, setMethod] = useState("");
   const [contact, setContact] = useState("");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [helpOpen, setHelpOpen] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -64,18 +59,13 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
   }, [closed]);
 
   const canAdvance = () => {
-    if (step === 0) return !!size;
-    if (step === 1) return !!(date && time);
-    if (step === 2) return !!method && contact.trim().length > 2;
+    if (step === 0) return !!(date && time);
+    if (step === 1) return !!method && contact.trim().length > 2;
     return true;
   };
 
   const nudge = () =>
-    setError(
-      step === 0 ? "Choose a size to continue."
-      : step === 1 ? "Pick a day and a time."
-      : "Add a way for us to reach you."
-    );
+    setError(step === 0 ? "Pick a day and a time." : "Add a way for us to reach you.");
 
   async function next() {
     setError("");
@@ -87,7 +77,7 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
     }
     setBusy(true);
     const res = await submitBorrowRequest({
-      itemId: item.id, size, date, time, method,
+      itemId: item.id, date, time, method,
       contact, name, contribution: amount || "Not this time",
     });
     setBusy(false);
@@ -106,9 +96,10 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
           </svg>
         </div>
         <h2>That&rsquo;s booked in.</h2>
-        <p className="lead" style={{ margin: ".9rem auto 0", maxWidth: "44ch" }}>
+        <p className="lead" style={{ margin: ".9rem auto 0", maxWidth: "46ch" }}>
           We&rsquo;ll message you on {method} to confirm your collection details for{" "}
-          {fullDate(date)} at {time}.
+          {fullDate(date)} at {time}. We&rsquo;ll agree a return date with you when you
+          pick it up &mdash; no need to decide now.
         </p>
         <div className="ref">{done}</div>
         <div className="btn-row" style={{ justifyContent: "center", marginTop: "2rem" }}>
@@ -120,7 +111,7 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
   }
 
   const summaryBits = [item.type, item.colour];
-  if (size) summaryBits.push(`Size ${size}`);
+  if (item.size) summaryBits.push(`Size ${item.size}`);
   if (date && time) summaryBits.push(`${niceDate(date)}, ${time}`);
 
   return (
@@ -129,7 +120,7 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={item.image_url} alt="" />
         <div>
-          <div className="summary__t">{item.name}</div>
+          <div className="summary__t">{itemTitle(item)}</div>
           <div className="summary__m">{summaryBits.filter(Boolean).join(" · ")}</div>
         </div>
         <span className="tag" style={{ marginLeft: "auto" }}>{item.id}</span>
@@ -145,37 +136,12 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
         ))}
       </div>
 
-      {/* 1 — size */}
+      {/* 1 — when to collect */}
       <div className="panel" data-active={step === 0 ? "1" : "0"}>
-        <h2>Which size do you need?</h2>
-        <p className="muted" style={{ marginTop: ".6rem" }}>
-          Listed sizes are the ones we currently have for this piece.
-        </p>
-        <div className="sizes" style={{ marginTop: "1.4rem" }}>
-          {sizes.map((s) => (
-            <button key={s} className="size" role="switch" aria-pressed={size === s} onClick={() => setSize(s)}>
-              {s}
-            </button>
-          ))}
-        </div>
-        <button className="helper" type="button" style={{ marginTop: "1.1rem" }} onClick={() => setHelpOpen((v) => !v)}>
-          Not sure about your size?
-        </button>
-        {helpOpen && (
-          <div className="note" style={{ marginTop: ".9rem" }}>
-            Lay a similar garment flat, measure across the chest, and double it. Between
-            sizes? Take the larger one — or pick either and mention it when we confirm;
-            swapping is easy.
-          </div>
-        )}
-      </div>
-
-      {/* 2 — when */}
-      <div className="panel" data-active={step === 1 ? "1" : "0"}>
-        <h2>When suits you?</h2>
+        <h2>When would you like to collect it?</h2>
         <p className="muted" style={{ marginTop: ".6rem" }}>
           Pick a day this coming week and a time. We&rsquo;ll confirm the exact collection
-          point when we message you.
+          point when we message you, and agree your return date at handover.
         </p>
         <div className="days" style={{ marginTop: "1.4rem" }}>
           {days.map((d) => (
@@ -210,8 +176,8 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
         )}
       </div>
 
-      {/* 3 — contact */}
-      <div className="panel" data-active={step === 2 ? "1" : "0"}>
+      {/* 2 — contact */}
+      <div className="panel" data-active={step === 1 ? "1" : "0"}>
         <h2>How should we reach you?</h2>
         <p className="muted" style={{ marginTop: ".6rem" }}>
           Just so we can confirm your request and share collection details. Nothing else —
@@ -262,8 +228,8 @@ export default function BorrowFlow({ item, settings }: { item: Item; settings: S
         </div>
       </div>
 
-      {/* 4 — contribution */}
-      <div className="panel" data-active={step === 3 ? "1" : "0"}>
+      {/* 3 — contribution */}
+      <div className="panel" data-active={step === 2 ? "1" : "0"}>
         <h2>Want to contribute?</h2>
         <p className="lead" style={{ marginTop: ".7rem" }}>
           Rabt is free to use, and it stays free whatever you choose here.

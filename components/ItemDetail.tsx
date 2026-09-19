@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import StatusBadge from "./StatusBadge";
-import { parseSizes, parseMeasurements, niceDate, type Item } from "@/lib/types";
+import { itemTitle, parseMeasurements, niceDate, type Item } from "@/lib/types";
 
 export default function ItemDetail({
   item,
@@ -14,10 +14,8 @@ export default function ItemDetail({
 }) {
   const gallery = [item.image_url, item.detail_url].filter(Boolean);
   const [shown, setShown] = useState(gallery[0] || "");
-  const [size, setSize] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const sizes = parseSizes(item.sizes);
   const out = item.status !== "available";
 
   return (
@@ -50,37 +48,32 @@ export default function ItemDetail({
           <span className="tag">{item.id}</span>
           <StatusBadge status={item.status} availableFrom={item.available_from} />
         </div>
-        <h1>{item.name}</h1>
+        <h1>{itemTitle(item)}</h1>
         {item.description && <p className="lead">{item.description}</p>}
 
-        {sizes.length > 0 && (
+        {item.size && (
           <div className="pdp__block" style={{ marginTop: "1.4rem" }}>
             <div className="pdp__blockhead">
               <span className="label">Size</span>
               <button className="helper" type="button" onClick={() => setHelpOpen((v) => !v)}>
-                Not sure about your size?
+                Will this size fit?
               </button>
             </div>
+            {/* One garment, one size — other sizes are their own listings. */}
             <div className="sizes">
-              {sizes.map((s) => (
-                <button
-                  key={s}
-                  className="size"
-                  role="switch"
-                  aria-pressed={size === s}
-                  disabled={out}
-                  onClick={() => setSize(s)}
-                >
-                  {s}
-                </button>
-              ))}
+              <span className="size size--fixed">{item.size}</span>
             </div>
+            <p className="muted" style={{ fontSize: "var(--fs-small)", marginTop: ".7rem" }}>
+              This is the only size of this piece.{" "}
+              <Link className="tlink" href={`/catalogue?category=${item.category}`}>
+                See other sizes and pieces
+              </Link>
+            </p>
             {helpOpen && (
               <div className="note" style={{ marginTop: ".9rem" }}>
                 Measure a shirt or jacket you already own flat across the chest, double it,
-                and match it to the chest measurement below. If you are between sizes, the
-                larger one is usually the safer borrow — or just ask us when we confirm
-                your request.
+                and compare it with the chest measurement below. If it is close, it will
+                usually do — and you can ask us when we confirm your request.
               </div>
             )}
           </div>
@@ -90,6 +83,7 @@ export default function ItemDetail({
           <div className="pdp__blockhead"><span className="label">Details</span></div>
           <div className="spec">
             {item.type && <div><span className="k">Type</span><span className="v">{item.type}</span></div>}
+            {item.size && <div><span className="k">Size</span><span className="v">{item.size}</span></div>}
             {item.colour && <div><span className="k">Colour</span><span className="v">{item.colour}</span></div>}
             {item.fit && <div><span className="k">Fit</span><span className="v">{item.fit}</span></div>}
             {item.condition && <div><span className="k">Condition</span><span className="v">{item.condition}</span></div>}
@@ -124,10 +118,7 @@ export default function ItemDetail({
             </>
           ) : (
             <>
-              <Link
-                className="btn btn--primary btn--block btn--lg"
-                href={`/borrow/${item.id}${size ? `?size=${encodeURIComponent(size)}` : ""}`}
-              >
+              <Link className="btn btn--primary btn--block btn--lg" href={`/borrow/${item.id}`}>
                 Borrow this
               </Link>
               <p className="muted" style={{ fontSize: "var(--fs-small)", marginTop: ".8rem", textAlign: "center" }}>

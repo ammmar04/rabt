@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { lookupRequests } from "@/app/actions";
 import { myRefs } from "@/lib/refs";
-import { niceDate, STATUS_FLOW, type Request } from "@/lib/types";
+import { dueLabel, itemTitle, niceDate, STATUS_FLOW, STATUS_RETURNED, type Request } from "@/lib/types";
 
 type Tab = "current" | "previous" | "all";
 
@@ -40,9 +40,9 @@ export default function Dashboard() {
     return <p className="muted">Loading your borrowing…</p>;
   }
 
-  const done = STATUS_FLOW.length - 1;
+  const done = STATUS_RETURNED;
   const current = rows.filter((r) => r.status < done);
-  const previous = rows.filter((r) => r.status === done);
+  const previous = rows.filter((r) => r.status >= done);
   const shown = tab === "current" ? current : tab === "previous" ? previous : rows;
 
   return (
@@ -79,10 +79,16 @@ export default function Dashboard() {
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: ".6rem", alignItems: "flex-start" }}>
                   <div>
-                    <div className="bcard__t">{r.item_name}</div>
+                    <div className="bcard__t">{itemTitle({ name: r.item_name, size: r.size })}</div>
                     <div className="bcard__m">
-                      Size {r.size} · {niceDate(r.requested_date)}, {r.requested_time}
+                      Collect {niceDate(r.requested_date)}, {r.requested_time}
                     </div>
+                    {r.return_date && r.status < done && (
+                      <div className="bcard__m">
+                        Return by {niceDate(r.return_date)}
+                        {r.return_time ? `, ${r.return_time}` : ""} &middot; {dueLabel(r.return_date)}
+                      </div>
+                    )}
                   </div>
                   <span className="tag">{r.ref}</span>
                 </div>

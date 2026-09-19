@@ -1,6 +1,7 @@
 import "server-only";
 import { q, exec } from "./db";
-import type { Category, Item, Request, Settings } from "./types";
+import type { Category, Item, PageContent, Request, Settings } from "./types";
+import { STATUS_BORROWED, STATUS_RETURNED } from "./types";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -12,6 +13,8 @@ export function ensureSchema(): Promise<void> {
     schemaReady = (async () => {
       const sql = readFileSync(join(process.cwd(), "db", "schema.sql"), "utf8");
       await exec(sql);
+      const { splitSizesIntoItems } = await import("./migrate");
+      await splitSizesIntoItems();
       const { seedIfEmpty } = await import("./seed");
       await seedIfEmpty();
     })().catch((e) => {
@@ -33,7 +36,7 @@ export async function getCategories(): Promise<Category[]> {
 }
 
 /* ---------------------------------------------------------------- items */
-const ITEM_COLS = `id, name, category, type, colour, colour_hex, sizes, fit, condition,
+const ITEM_COLS = `id, name, category, type, colour, colour_hex, size, fit, condition,
   status, to_char(available_from,'YYYY-MM-DD') AS available_from, description,
   measurements, care, image_url, detail_url, archived`;
 
@@ -62,7 +65,7 @@ export type ItemInput = Omit<Item, "archived">;
 export async function createItem(data: ItemInput): Promise<void> {
   await ready();
   await q(
-    `INSERT INTO items (id, name, category, type, colour, colour_hex, sizes, fit,
+    `INSERT INTO items (id, name, category, type, colour, colour_hex, size, fit,
        condition, status, available_from, description, measurements, care,
        image_url, detail_url)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
@@ -70,7 +73,7 @@ export async function createItem(data: ItemInput): Promise<void> {
        $12,$13,$14,$15,$16)`,
     [
       data.id, data.name, data.category, data.type, data.colour, data.colour_hex,
-      data.sizes, data.fit, data.condition, data.status, data.available_from ?? "",
+      data.size, data.fit, data.condition, data.status, data.available_from ?? "",
       data.description, data.measurements, data.care, data.image_url, data.detail_url,
     ]
   );
@@ -80,14 +83,14 @@ export async function updateItem(id: string, data: ItemInput): Promise<void> {
   await ready();
   await q(
     `UPDATE items SET name=$2, category=$3, type=$4, colour=$5, colour_hex=$6,
-       sizes=$7, fit=$8, condition=$9, status=$10,
+       size=$7, fit=$8, condition=$9, status=$10,
        available_from = CASE WHEN $11 = '' THEN NULL ELSE $11::date END,
        description=$12, measurements=$13, care=$14, image_url=$15, detail_url=$16,
        updated_at = now()
      WHERE id = $1`,
     [
       id, data.name, data.category, data.type, data.colour, data.colour_hex,
-      data.sizes, data.fit, data.condition, data.status, data.available_from ?? "",
+      data.size, data.fit, data.condition, data.status, data.available_from ?? "",
       data.description, data.measurements, data.care, data.image_url, data.detail_url,
     ]
   );
@@ -135,15 +138,44 @@ export async function nextItemId(category: string): Promise<string> {
 }
 
 /* ------------------------------------------------------------- requests */
+const REQUEST_COLS = `r.ref, r.item_id, r.item_name, r.size, r.requested_date,
+  r.requested_time, r.contact_method, r.contact_value, r.person_name, r.contribution,
+  r.status, to_char(r.return_date,'YYYY-MM-DD') AS return_date, r.return_time,
+  to_char(r.returned_at,'YYYY-MM-DD') AS returned_at,
+  to_char(r.created_at,'YYYY-MM-DD') AS created_at,
+  i.image_url AS item_image`;
+
 export async function getRequests(): Promise<Request[]> {
   await ready();
   return q<Request>(
-    `SELECT r.ref, r.item_id, r.item_name, r.size, r.requested_date, r.requested_time,
-            r.contact_method, r.contact_value, r.person_name, r.contribution, r.status,
-            to_char(r.created_at,'YYYY-MM-DD') AS created_at,
-            i.image_url AS item_image
+    `SELECT ${REQUEST_COLS}
        FROM requests r LEFT JOIN items i ON i.id = r.item_id
       ORDER BY r.created_at DESC`
+  );
+}
+
+export async function getRequest(ref: string): Promise<Request | null> {
+  await ready();
+  const rows = await q<Request>(
+    `SELECT ${REQUEST_COLS}
+       FROM requests r LEFT JOIN items i ON i.id = r.item_id
+      WHERE r.ref = $1`,
+    [ref]
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Everything handed over or already back, newest return first. The admin
+ * Returns view groups these by how soon they are due.
+ */
+export async function getBorrowings(): Promise<Request[]> {
+  await ready();
+  return q<Request>(
+    `SELECT ${REQUEST_COLS}
+       FROM requests r LEFT JOIN items i ON i.id = r.item_id
+      WHERE r.status >= ${STATUS_BORROWED} OR r.return_date IS NOT NULL
+      ORDER BY r.return_date ASC NULLS FIRST, r.created_at DESC`
   );
 }
 
@@ -153,10 +185,7 @@ export async function getRequestsByRefs(refs: string[]): Promise<Request[]> {
   const list = refs.slice(0, 50);
   const holes = list.map((_, i) => `$${i + 1}`).join(",");
   return q<Request>(
-    `SELECT r.ref, r.item_id, r.item_name, r.size, r.requested_date, r.requested_time,
-            r.contact_method, r.contact_value, r.person_name, r.contribution, r.status,
-            to_char(r.created_at,'YYYY-MM-DD') AS created_at,
-            i.image_url AS item_image
+    `SELECT ${REQUEST_COLS}
        FROM requests r LEFT JOIN items i ON i.id = r.item_id
       WHERE r.ref IN (${holes}) ORDER BY r.created_at DESC`,
     list
@@ -178,7 +207,34 @@ export async function createRequest(r: Omit<Request, "created_at">): Promise<voi
 
 export async function setRequestStatus(ref: string, status: number): Promise<void> {
   await ready();
-  await q(`UPDATE requests SET status = $2, updated_at = now() WHERE ref = $1`, [ref, status]);
+  await q(
+    `UPDATE requests SET status = $2,
+       returned_at = CASE WHEN $2 >= ${STATUS_RETURNED} THEN COALESCE(returned_at, now())
+                          ELSE NULL END,
+       updated_at = now()
+     WHERE ref = $1`,
+    [ref, status]
+  );
+}
+
+/**
+ * The expected return the team agrees with the borrower at handover. Stored
+ * against the request, which points at one physical item.
+ */
+export async function setExpectedReturn(
+  ref: string,
+  date: string,
+  time: string
+): Promise<void> {
+  await ready();
+  await q(
+    `UPDATE requests SET
+       return_date = CASE WHEN $2 = '' THEN NULL ELSE $2::date END,
+       return_time = $3,
+       updated_at = now()
+     WHERE ref = $1`,
+    [ref, date, time]
+  );
 }
 
 export async function deleteRequest(ref: string): Promise<void> {
@@ -216,14 +272,52 @@ export async function saveSettings(s: Settings): Promise<void> {
   );
 }
 
+/* -------------------------------------------------------- page content */
+export const DEFAULT_CONTENT: PageContent = {
+  cat_eyebrow: "The wardrobe",
+  cat_heading: "Everything on the rail.",
+  cat_intro:
+    "Borrow any of it, free. Items already out are still listed, with the date they are due back.",
+  cat_empty: "Nothing matches that just yet.",
+};
+
+/** Catalogue copy the team edits in admin. Falls back to the shipped text. */
+export async function getContent(): Promise<PageContent> {
+  await ready();
+  const rows = await q<PageContent>(
+    `SELECT cat_eyebrow, cat_heading, cat_intro, cat_empty FROM settings WHERE id = 1`
+  );
+  const row = rows[0];
+  if (!row) return DEFAULT_CONTENT;
+  // An admin who clears a field gets the shipped copy back rather than a gap.
+  return {
+    cat_eyebrow: row.cat_eyebrow || DEFAULT_CONTENT.cat_eyebrow,
+    cat_heading: row.cat_heading || DEFAULT_CONTENT.cat_heading,
+    cat_intro: row.cat_intro || DEFAULT_CONTENT.cat_intro,
+    cat_empty: row.cat_empty || DEFAULT_CONTENT.cat_empty,
+  };
+}
+
+export async function saveContent(c: PageContent): Promise<void> {
+  await ready();
+  await q(
+    `INSERT INTO settings (id, cat_eyebrow, cat_heading, cat_intro, cat_empty)
+     VALUES (1,$1,$2,$3,$4)
+     ON CONFLICT (id) DO UPDATE SET cat_eyebrow=$1, cat_heading=$2,
+        cat_intro=$3, cat_empty=$4`,
+    [c.cat_eyebrow, c.cat_heading, c.cat_intro, c.cat_empty]
+  );
+}
+
 /* ----------------------------------------------------------------- misc */
 export async function counts() {
   await ready();
-  const rows = await q<{ total: number; available: number; open: number }>(
+  const rows = await q<{ total: number; available: number; open: number; out: number }>(
     `SELECT
        (SELECT count(*)::int FROM items WHERE archived = FALSE) AS total,
        (SELECT count(*)::int FROM items WHERE archived = FALSE AND status='available') AS available,
-       (SELECT count(*)::int FROM requests WHERE status < 5) AS open`
+       (SELECT count(*)::int FROM items WHERE archived = FALSE AND status<>'available') AS out,
+       (SELECT count(*)::int FROM requests WHERE status < ${STATUS_RETURNED}) AS open`
   );
-  return rows[0] ?? { total: 0, available: 0, open: 0 };
+  return rows[0] ?? { total: 0, available: 0, open: 0, out: 0 };
 }

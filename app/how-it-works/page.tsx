@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const FAQS: [string, React.ReactNode][] = [
   ["How long can I keep something?",
-   "Up to a week as standard. If you need it longer, say so when we confirm — it is usually fine."],
+   "Up to a week as standard. We agree the exact return date and time with you when you collect it, so you do not have to work it out in advance. Need longer? Say so at handover — it is usually fine."],
   ["What if it does not fit?",
    "Message us and we will swap it for another size if we have one, or find you something similar. Nothing is final until it actually fits."],
   ["Do I need to clean it before returning?",
@@ -19,7 +19,7 @@ const FAQS: [string, React.ReactNode][] = [
   ["Who can use Rabt?",
    "Anyone on campus. There is no eligibility check, no proof of anything, and no application asking about your circumstances."],
   ["Can I borrow two things at once?",
-   "Yes, but as two separate requests — each piece is tracked and prepared on its own. Just go through the flow again for the second item."],
+   "Yes, but as two separate requests — every garment is listed and tracked on its own. Just go through the flow again for the second item."],
 ];
 
 export default function HowItWorks() {
@@ -29,7 +29,7 @@ export default function HowItWorks() {
         <span className="label label--olive">How it works</span>
         <h1 style={{ marginTop: "1rem" }}>Borrow something in about two minutes.</h1>
         <p className="lead">
-          Find a piece, tell us your size and when you can collect it, and we take it from there.
+          Find a piece in your size, tell us when you can collect it, and we take it from there.
         </p>
       </section>
 

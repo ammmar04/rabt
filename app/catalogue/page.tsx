@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getCategories, getItems } from "@/lib/queries";
+import { getCategories, getContent, getItems } from "@/lib/queries";
 import CatalogueBrowser from "@/components/CatalogueBrowser";
 
 export const dynamic = "force-dynamic";
@@ -16,21 +16,25 @@ export default async function CataloguePage({
   searchParams: Promise<{ category?: string }>;
 }) {
   const { category } = await searchParams;
-  const [items, categories] = await Promise.all([getItems(), getCategories()]);
+  const [items, categories, content] = await Promise.all([
+    getItems(), getCategories(), getContent(),
+  ]);
   const valid = categories.some((c) => c.slug === category) ? category : undefined;
 
   return (
     <>
-      <section className="wrap page-head">
-        <span className="label label--olive">The wardrobe</span>
-        <h1 style={{ marginTop: "1rem" }}>Everything on the rail.</h1>
-        <p className="lead">
-          Borrow any of it, free. Items already out are still listed so you can see the
-          full wardrobe and when they are due back.
-        </p>
+      <section className="wrap page-head page-head--tight">
+        {content.cat_eyebrow && <span className="label label--olive">{content.cat_eyebrow}</span>}
+        <h1 style={{ marginTop: "1rem" }}>{content.cat_heading}</h1>
+        {content.cat_intro && <p className="lead">{content.cat_intro}</p>}
       </section>
       <section className="wrap section--tight">
-        <CatalogueBrowser items={items} categories={categories} initialCategory={valid} />
+        <CatalogueBrowser
+          items={items}
+          categories={categories}
+          initialCategory={valid}
+          content={content}
+        />
       </section>
     </>
   );

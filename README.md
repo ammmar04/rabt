@@ -31,14 +31,22 @@ Everything happens at **/admin** — no spreadsheets, no code, no redeploys.
 
 | To… | Do this |
 |---|---|
-| Add an item | **Items → Add item**, drag in a photo, fill the form, save. It is live immediately. |
-| Edit an item | **Items →** click the item name. |
-| Remove an item | **Items → Remove.** It disappears from the public site; past requests keep their history. |
+| Add a garment | **Items → Add item**, drag in a photo, fill the form, save. It is live immediately. |
+| Edit a garment | **Items →** click its name. |
+| Remove a garment | **Items → Remove.** It disappears from the public site; past requests keep their history. |
 | Mark something borrowed / back | **Items →** the *Set availability* dropdown. Saves on change. |
+| Record a handover | **Requests →** fill in *Expected return* (date and time) and save. That marks the request borrowed and starts tracking the return. |
 | Move a request along | **Requests →** the *Status* dropdown (Request received → … → Returned). The borrower's My Rabt page updates too. |
+| See what is due back | **Returns.** Grouped into overdue, due today, due soon, no date yet and returned, with a reminder across the top of every admin page. |
+| Take a garment back | **Returns → Mark returned.** The garment goes straight back on the rail. |
+| Reword the catalogue page | **Content.** Heading, the text under it and the no-results message. Clear a field to get the original wording back. |
 | Change contact or payment details | **Settings.** These feed the public site directly. |
 
 Item IDs (`R-206`) are assigned automatically per category.
+
+**One row per garment.** A suit in size 40 and the same suit in size 42 are two
+separate items with their own id, availability and borrowing history — not one
+item with a list of sizes. Adding a second size means adding a second item.
 
 ## Going live on Vercel
 
@@ -65,12 +73,14 @@ app/
   page.tsx                home
   catalogue/              browse + filters
   item/[id]/              item page
-  borrow/[id]/            the 4-step request flow
+  borrow/[id]/            the 3-step request flow (collect, contact, contribute)
   dashboard/              My Rabt — borrower's own requests
   how-it-works, about, contribute, privacy
   admin/                  password-gated portal
-    page.tsx              requests + status
+    page.tsx              requests, status, handover return date
+    returns/              what is due back, grouped by how soon
     items/                list, add, edit
+    content/              catalogue page wording
     settings/             contact, payment, collection times
   actions.ts              public server actions (submit + look up requests)
   admin/actions.ts        admin server actions (all call requireAdmin)
@@ -81,6 +91,7 @@ lib/
   auth.ts                 admin password + signed session cookie
   storage.ts              Vercel Blob, or local folder in dev
   seed.ts                 first-run data from data/inventory.json
+  migrate.ts              splits pre-existing multi-size items into one row each
   types.ts                shared types + helpers
 
 db/schema.sql             tables (idempotent)
@@ -90,8 +101,15 @@ scripts/gen_images.py     regenerates that artwork if you want more of it
 
 ## Design notes
 
-- **One item per request, by design.** There is no basket. Each piece has its own
-  availability and preparation, so two items means two requests.
+- **One item per request, by design.** There is no basket. Each garment has its own
+  availability and preparation, so two garments means two requests.
+- **Every physical garment is its own catalogue entry.** Sizes are not variants of
+  one listing, so borrowing, availability, returns and history are tracked per
+  garment rather than per design.
+- **The return date is agreed at handover,** not when the request is made — a
+  borrower rarely knows it yet. The team enters it when they hand the garment
+  over, and it then drives the Returns view and the "expected back" note on the
+  public item page.
 - **No user accounts.** The borrower's dashboard works by remembering its own
   reference numbers in the browser and asking the server for just those. Nothing
   identifying is stored, and there are no public lists of who borrowed what.

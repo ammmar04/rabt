@@ -3,6 +3,7 @@ import { authConfigured, isSignedIn, usingDevPassword } from "@/lib/auth";
 import { signOut } from "./actions";
 import SignInForm from "@/components/admin/SignInForm";
 import AdminTabs from "@/components/admin/AdminTabs";
+import ReturnsAlert from "@/components/admin/ReturnsAlert";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
       <AdminTabs />
+
+      <ReturnsAlert />
 
       {children}
     </div>

@@ -5,9 +5,11 @@ import { join } from "node:path";
 
 type SeedItem = {
   id: string; name: string; category: string; type: string; colour: string;
-  colourHex: string; sizes: string[]; fit: string; condition: string;
+  colourHex: string; size: string; fit: string; condition: string;
   status: string; availableFrom: string | null; description: string;
   measurements: Record<string, string>; care: string;
+  /** Garments of the same design share one set of photos. */
+  photo: string;
 };
 type SeedFile = {
   config: {
@@ -49,7 +51,7 @@ export async function seedIfEmpty(): Promise<void> {
       .map(([k, v]) => `${k}: ${v}`)
       .join("\n");
     await q(
-      `INSERT INTO items (id, name, category, type, colour, colour_hex, sizes, fit,
+      `INSERT INTO items (id, name, category, type, colour, colour_hex, size, fit,
          condition, status, available_from, description, measurements, care,
          image_url, detail_url)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
@@ -58,9 +60,9 @@ export async function seedIfEmpty(): Promise<void> {
        ON CONFLICT (id) DO NOTHING`,
       [
         it.id, it.name, it.category, it.type, it.colour, it.colourHex,
-        (it.sizes || []).join(","), it.fit, it.condition, it.status,
+        it.size, it.fit, it.condition, it.status,
         it.availableFrom ?? "", it.description, measurements, it.care,
-        `/img/items/${it.id}.svg`, `/img/items/${it.id}-detail.svg`,
+        `/img/items/${it.photo ?? it.id}.svg`, `/img/items/${it.photo ?? it.id}-detail.svg`,
       ]
     );
   }

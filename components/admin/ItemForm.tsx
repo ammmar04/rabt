@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import { saveItem } from "@/app/admin/actions";
-import { SIZE_OPTIONS, parseSizes, type Category, type Item } from "@/lib/types";
+import { SIZE_OPTIONS, type Category, type Item } from "@/lib/types";
 
 function PhotoField({
   name, label, hint, existing,
@@ -69,7 +69,6 @@ export default function ItemForm({
 }) {
   const [state, action, pending] = useActionState(saveItem, {} as { error?: string });
   const [status, setStatus] = useState(item?.status ?? "available");
-  const chosen = new Set(parseSizes(item?.sizes ?? ""));
 
   return (
     <form action={action} className="admin-form">
@@ -114,17 +113,23 @@ export default function ItemForm({
             </div>
           </div>
 
-          <div className="field">
-            <span className="field__label">Sizes available</span>
-            <div className="checkrow">
-              {SIZE_OPTIONS.map((s) => (
-                <label className="checkchip" key={s}>
-                  <input type="checkbox" name="sizes" value={s} defaultChecked={chosen.has(s)} />
-                  <span>{s}</span>
-                </label>
-              ))}
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="size">Size</label>
+              <input className="input" id="size" name="size" required list="size-options"
+                defaultValue={item?.size} placeholder="M, or 40" />
+              <datalist id="size-options">
+                {SIZE_OPTIONS.map((s) => <option key={s} value={s} />)}
+              </datalist>
+              <span className="hint">
+                One garment, one size. Have the same piece in another size? Add it as its
+                own item so each can be borrowed and tracked separately.
+              </span>
             </div>
-            <span className="hint">Tick every size you have of this piece.</span>
+            <div className="field">
+              <label htmlFor="fit">Fit</label>
+              <input className="input" id="fit" name="fit" defaultValue={item?.fit} placeholder="Regular" />
+            </div>
           </div>
 
           <div className="field-row">
@@ -142,16 +147,9 @@ export default function ItemForm({
 
           <div className="field-row">
             <div className="field">
-              <label htmlFor="fit">Fit</label>
-              <input className="input" id="fit" name="fit" defaultValue={item?.fit} placeholder="Regular" />
-            </div>
-            <div className="field">
               <label htmlFor="condition">Condition</label>
               <input className="input" id="condition" name="condition" defaultValue={item?.condition} placeholder="Excellent" />
             </div>
-          </div>
-
-          <div className="field-row">
             <div className="field">
               <label htmlFor="status">Availability</label>
               <select className="select" id="status" name="status" value={status}
@@ -161,15 +159,16 @@ export default function ItemForm({
                 <option value="soon">Available soon</option>
               </select>
             </div>
-            {status !== "available" && (
-              <div className="field">
-                <label htmlFor="available_from">Back on</label>
-                <input className="input" id="available_from" name="available_from" type="date"
-                  defaultValue={item?.available_from ?? ""} />
-                <span className="hint">Shown as &ldquo;From 14 Sept&rdquo; on the card.</span>
-              </div>
-            )}
           </div>
+
+          {status !== "available" && (
+            <div className="field">
+              <label htmlFor="available_from">Back on</label>
+              <input className="input" id="available_from" name="available_from" type="date"
+                defaultValue={item?.available_from ?? ""} />
+              <span className="hint">Shown as &ldquo;From 14 Sept&rdquo; on the card.</span>
+            </div>
+          )}
         </div>
       </div>
 

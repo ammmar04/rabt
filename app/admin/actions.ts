@@ -3,14 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  archiveItem, createItem, getItem, nextItemId,
-  saveSettings, setItemStatus, setRequestStatus, updateItem,
+  archiveItem, createItem, getItem, getRequest, nextItemId,
+  saveContent, saveSettings, setExpectedReturn, setItemStatus,
+  setRequestStatus, updateItem,
 } from "@/lib/queries";
 import { checkPassword, endSession, requireAdmin, startSession } from "@/lib/auth";
 import { clientKey, hit } from "@/lib/ratelimit";
 import { saveUpload } from "@/lib/storage";
 import type { ItemInput } from "@/lib/queries";
-import type { Settings, Status } from "@/lib/types";
+import type { PageContent, Settings, Status } from "@/lib/types";
+import { STATUS_BORROWED, STATUS_FLOW, STATUS_RETURNED } from "@/lib/types";
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
 
@@ -48,11 +50,13 @@ function itemFromForm(fd: FormData, id: string, imageUrl: string, detailUrl: str
     type: str(fd, "type"),
     colour: str(fd, "colour"),
     colour_hex: str(fd, "colour_hex") || "#8A8A82",
-    sizes: fd.getAll("sizes").map((s) => String(s)).join(","),
+    size: str(fd, "size"),
     fit: str(fd, "fit"),
     condition: str(fd, "condition"),
     status,
-    available_from: status === "soon" ? str(fd, "available_from") : "",
+    // The form offers "Back on" for anything that is not available, so a
+    // borrowed item keeps its due-back date instead of losing it on save.
+    available_from: status === "available" ? "" : str(fd, "available_from"),
     description: str(fd, "description"),
     measurements: str(fd, "measurements"),
     care: str(fd, "care"),
@@ -72,7 +76,7 @@ export async function saveItem(_prev: unknown, fd: FormData): Promise<SaveResult
   const category = str(fd, "category");
   if (!name) return { error: "Give the item a name." };
   if (!category) return { error: "Choose a category." };
-  if (!fd.getAll("sizes").length) return { error: "Pick at least one size." };
+  if (!str(fd, "size")) return { error: "Give the item a size." };
 
   const existing = editingId ? await getItem(editingId) : null;
   if (editingId && !existing) return { error: "That item no longer exists." };
@@ -139,13 +143,80 @@ export async function quickStatus(fd: FormData): Promise<void> {
 }
 
 /* -------------------------------------------------------------- requests */
+
 export async function updateRequest(fd: FormData): Promise<void> {
   await requireAdmin();
   const ref = str(fd, "ref");
   const status = Number(str(fd, "status"));
-  if (ref && Number.isFinite(status)) await setRequestStatus(ref, status);
-  revalidatePath("/admin");
-  revalidatePath("/dashboard");
+  if (!ref || !Number.isFinite(status)) return;
+  if (status < 0 || status >= STATUS_FLOW.length) return;
+
+  const request = await getRequest(ref);
+  await setRequestStatus(ref, status);
+
+  if (request?.item_id) {
+    const item = await getItem(request.item_id);
+    if (status >= STATUS_RETURNED) {
+      await setItemStatus(request.item_id, "available", "");
+    } else if (status >= STATUS_BORROWED) {
+      await setItemStatus(request.item_id, "borrowed", request.return_date ?? "");
+    } else if (item?.status === "borrowed") {
+      // Moved back before handover: the garment is not out after all.
+      // "Available soon" is left alone — that is someone marking it for
+      // cleaning or repair, which has nothing to do with this request.
+      await setItemStatus(request.item_id, "available", "");
+    }
+  }
+
+  revalidatePath("/", "layout");
+}
+
+/**
+ * The expected return, entered by the team at handover rather than asked of
+ * the borrower up front. Also carried onto the item so its page can say when
+ * it is due back.
+ */
+export async function saveExpectedReturn(fd: FormData): Promise<void> {
+  await requireAdmin();
+  const ref = str(fd, "ref");
+  if (!ref) return;
+
+  const date = str(fd, "return_date");
+  const time = str(fd, "return_time");
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  if (time && !/^\d{1,2}:\d{2}$/.test(time)) return;
+
+  const request = await getRequest(ref);
+  if (!request) return;
+
+  await setExpectedReturn(ref, date, time);
+
+  // Setting a return date is the handover, so a request still sitting earlier
+  // in the flow moves on. Saving with the date blank — clearing a mistake, or
+  // a garment already out — must not mark anything as handed over on its own.
+  const handedOver = date !== "" || request.status >= STATUS_BORROWED;
+  const status = handedOver ? Math.max(request.status, STATUS_BORROWED) : request.status;
+
+  if (status !== request.status) await setRequestStatus(ref, status);
+  if (request.item_id && handedOver && status < STATUS_RETURNED) {
+    await setItemStatus(request.item_id, "borrowed", date);
+  }
+
+  revalidatePath("/", "layout");
+}
+
+/** Marks a borrowing returned and puts the item back on the rail. */
+export async function markReturned(fd: FormData): Promise<void> {
+  await requireAdmin();
+  const ref = str(fd, "ref");
+  if (!ref) return;
+  const request = await getRequest(ref);
+  if (!request) return;
+
+  await setRequestStatus(ref, STATUS_RETURNED);
+  if (request.item_id) await setItemStatus(request.item_id, "available", "");
+
+  revalidatePath("/", "layout");
 }
 
 /* -------------------------------------------------------------- settings */
@@ -163,6 +234,24 @@ export async function updateSettings(_prev: unknown, fd: FormData): Promise<{ ok
     closed_days: str(fd, "closed_days"),
   };
   await saveSettings(s);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/* --------------------------------------------------------- page content */
+export async function updateContent(
+  _prev: unknown,
+  fd: FormData
+): Promise<{ ok?: boolean; error?: string }> {
+  await requireAdmin();
+  const c: PageContent = {
+    cat_eyebrow: str(fd, "cat_eyebrow").slice(0, 60),
+    cat_heading: str(fd, "cat_heading").slice(0, 120),
+    cat_intro: str(fd, "cat_intro").slice(0, 400),
+    cat_empty: str(fd, "cat_empty").slice(0, 200),
+  };
+  if (!c.cat_heading) return { error: "The catalogue needs a heading." };
+  await saveContent(c);
   revalidatePath("/", "layout");
   return { ok: true };
 }

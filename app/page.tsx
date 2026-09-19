@@ -25,22 +25,21 @@ export default async function Home() {
           <img src="/img/hero.svg" alt="A rail of formal clothing from the Rabt wardrobe" width={1600} height={900} />
         </div>
         <div className="hero__scrim" />
+        {/* Kept short on purpose: browsing the rail is the point of this
+            screen, so the catalogue button stays within the first viewport on
+            a phone. The longer explanation lives further down and on
+            /how-it-works. */}
         <div className="wrap hero__in">
           <span className="label label--olive">The campus wardrobe</span>
           <h1>Borrow what you need.</h1>
-          <p className="lead">
-            Formal clothing for interviews, presentations, defences and anything with a
-            dress code. Free to borrow, open to everyone — no eligibility check, no
-            explaining why.
-          </p>
+          <p className="lead">Formal clothing, free to borrow, open to everyone.</p>
           <div className="btn-row">
             <Link className="btn btn--primary btn--lg" href="/catalogue">Browse the wardrobe</Link>
             <Link className="btn btn--ghost btn--lg" href="/how-it-works">How it works</Link>
           </div>
           <div className="hero__meta">
-            <span>{CHECK}Free to borrow</span>
-            <span>{CHECK}No forms about why you need it</span>
             <span>{CHECK}<strong>&nbsp;{available.length}</strong>&nbsp;pieces available now</span>
+            <span>{CHECK}No forms about why you need it</span>
           </div>
         </div>
       </section>
@@ -106,13 +105,15 @@ export default async function Home() {
             <span className="label">The idea</span>
             <h2 style={{ marginTop: ".6rem" }}>A wardrobe nobody owns.</h2>
             <p>
-              Most of us need formal clothes a handful of times a year. Buying a suit for
-              one interview rarely makes sense, and borrowing from a friend depends on
-              having a friend your size.
+              Most of us need formal clothes a handful of times a year &mdash; an interview,
+              a presentation, a defence, anything with a dress code. Buying a suit for one
+              of them rarely makes sense, and borrowing from a friend depends on having a
+              friend your size.
             </p>
             <p>
               Rabt is the in-between: a shared rail that anyone on campus can use, kept
-              going by people passing on things they no longer wear. You borrow it, you
+              going by people passing on things they no longer wear. Free to borrow, no
+              eligibility check and no explaining why you need it. You borrow it, you
               return it, someone else borrows it next.
             </p>
             <Link className="tlink" href="/about" style={{ marginTop: ".4rem" }}>

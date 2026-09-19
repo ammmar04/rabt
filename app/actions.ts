@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { createRequest, getItem, getRequestsByRefs, getSettings } from "@/lib/queries";
 import { clientKey, hit } from "@/lib/ratelimit";
-import { parseSizes, type Request } from "@/lib/types";
+import type { Request } from "@/lib/types";
 
 function makeRef(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no look-alikes
@@ -37,7 +37,6 @@ export type BorrowResult = { ok: true; ref: string } | { ok: false; error: strin
 /** Places a borrowing request. One item per request, by design. */
 export async function submitBorrowRequest(input: {
   itemId: string;
-  size: string;
   date: string;
   time: string;
   method: string;
@@ -58,7 +57,6 @@ export async function submitBorrowRequest(input: {
   }
 
   const settings = await getSettings();
-  const size = input.size.trim();
   const date = input.date.trim();
   const time = input.time.trim();
   const method = input.method.trim();
@@ -66,9 +64,6 @@ export async function submitBorrowRequest(input: {
 
   // Validate everything against what the form actually offers, so a crafted
   // request cannot put nonsense into the team's queue.
-  if (!parseSizes(item.sizes).includes(size)) {
-    return { ok: false, error: "Please choose one of the sizes listed." };
-  }
   const closed = new Set(
     settings.closed_days.split(",").map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n))
   );
@@ -86,7 +81,8 @@ export async function submitBorrowRequest(input: {
     ref,
     item_id: item.id,
     item_name: item.name,
-    size,
+    // The item *is* the size, so it is recorded from the item, never the form.
+    size: item.size,
     requested_date: date,
     requested_time: time,
     contact_method: method,
@@ -94,6 +90,9 @@ export async function submitBorrowRequest(input: {
     person_name: input.name.trim().slice(0, 80),
     contribution: input.contribution.trim().slice(0, 40),
     status: 0,
+    return_date: null,
+    return_time: "",
+    returned_at: null,
   });
 
   return { ok: true, ref };

@@ -3,20 +3,25 @@
 import Link from "next/link";
 import { useState } from "react";
 import StatusBadge from "./StatusBadge";
-import { itemTitle, parseMeasurements, niceDate, type Item } from "@/lib/types";
+import { itemStatus, itemTitle, parseMeasurements, niceDate, type Item } from "@/lib/types";
 
 export default function ItemDetail({
   item,
   categoryName,
+  borrowNote,
 }: {
   item: Item;
   categoryName: string;
+  /** Editable line under the Borrow button (Content → Borrowing). */
+  borrowNote: string;
 }) {
   const gallery = [item.image_url, item.detail_url].filter(Boolean);
   const [shown, setShown] = useState(gallery[0] || "");
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const out = item.status !== "available";
+  const status = itemStatus(item.status);
+  const out = !status.borrowable;
+  const backOn = status.hasReturnDate ? niceDate(item.available_from) : "";
 
   return (
     <div className="pdp">
@@ -46,7 +51,7 @@ export default function ItemDetail({
       <div className="pdp__info reveal" data-d={1}>
         <div className="pdp__head">
           <span className="tag">{item.id}</span>
-          <StatusBadge status={item.status} availableFrom={item.available_from} />
+          <StatusBadge status={item.status} />
         </div>
         <h1>{itemTitle(item)}</h1>
         {item.description && <p className="lead">{item.description}</p>}
@@ -104,9 +109,9 @@ export default function ItemDetail({
           {out ? (
             <>
               <div className="note note--brass">
-                This one is out at the moment
-                {item.available_from ? <>, expected back around <strong>{niceDate(item.available_from)}</strong></> : null}
-                . Have a look at what else is on the rail — or check back shortly.
+                {status.note}
+                {backOn ? <> It should be back around <strong>{backOn}</strong>.</> : null}{" "}
+                Have a look at what else is on the rail, or check back shortly.
               </div>
               <Link
                 className="btn btn--ghost btn--block btn--lg"
@@ -121,9 +126,11 @@ export default function ItemDetail({
               <Link className="btn btn--primary btn--block btn--lg" href={`/borrow/${item.id}`}>
                 Borrow this
               </Link>
-              <p className="muted" style={{ fontSize: "var(--fs-small)", marginTop: ".8rem", textAlign: "center" }}>
-                Free to borrow. No eligibility check, no forms about why you need it.
-              </p>
+              {borrowNote && (
+                <p className="muted" style={{ fontSize: "var(--fs-small)", marginTop: ".8rem", textAlign: "center" }}>
+                  {borrowNote}
+                </p>
+              )}
             </>
           )}
         </div>

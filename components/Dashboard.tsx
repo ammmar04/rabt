@@ -4,26 +4,55 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { lookupRequests } from "@/app/actions";
 import { myRefs } from "@/lib/refs";
-import { dueLabel, itemTitle, niceDate, STATUS_FLOW, STATUS_RETURNED, type Request } from "@/lib/types";
+import {
+  REQUEST_STATUSES, dueLabel, formatDay, itemTitle, niceDate, requestLabel,
+  type Request, type RequestStatus,
+} from "@/lib/types";
 
 type Tab = "current" | "previous" | "all";
 
-function Track({ status }: { status: number }) {
+const TRACK: { status: RequestStatus; label: string }[] = [
+  { status: "pending", label: "Requested" },
+  { status: "confirmed", label: "Confirmed" },
+  { status: "collected", label: "Borrowed" },
+  { status: "returned", label: "Returned" },
+];
+
+function Track({ status }: { status: RequestStatus }) {
+  const at = TRACK.findIndex((t) => t.status === status);
   return (
     <>
       <div className="track">
-        {STATUS_FLOW.map((_, i) => (
-          <span key={i} style={{ display: "contents" }}>
-            <span className="track__dot" data-on={i <= status ? 1 : 0} />
-            {i < STATUS_FLOW.length - 1 && <span className="track__line" data-on={i < status ? 1 : 0} />}
+        {TRACK.map((t, i) => (
+          <span key={t.status} style={{ display: "contents" }}>
+            <span className="track__dot" data-on={i <= at ? 1 : 0} />
+            {i < TRACK.length - 1 && <span className="track__line" data-on={i < at ? 1 : 0} />}
           </span>
         ))}
       </div>
       <div className="track-labels">
-        <span>Requested</span><span>Ready</span><span>Returned</span>
+        {TRACK.map((t) => <span key={t.status}>{t.label}</span>)}
       </div>
     </>
   );
+}
+
+/** What the borrower should know about where their request is. */
+function StatusLine({ r }: { r: Request }) {
+  if (r.status === "pending") {
+    return <>Not confirmed yet — we&rsquo;ll contact you to confirm it.</>;
+  }
+  if (r.status === "confirmed") {
+    return <>Confirmed. Collect {niceDate(r.requested_date)}, {r.requested_time}, or when we arranged.</>;
+  }
+  if (r.status === "collected") {
+    return r.due_date
+      ? <>Return by {niceDate(r.due_date)}{r.due_time ? `, ${r.due_time}` : ""} &middot; {dueLabel(r.due_date)}</>
+      : <>With you now. We&rsquo;ll agree the return date with you.</>;
+  }
+  if (r.status === "returned") return <>Returned {formatDay(r.returned_at ?? r.closed_at)}. Thank you.</>;
+  if (r.status === "cancelled") return <>This request was cancelled.</>;
+  return <>This request didn&rsquo;t go ahead. Have a look at what else is on the rail.</>;
 }
 
 export default function Dashboard() {
@@ -37,19 +66,18 @@ export default function Dashboard() {
   }, []);
 
   if (rows === null) {
-    return <p className="muted">Loading your borrowing…</p>;
+    return <p className="muted">Loading your requests…</p>;
   }
 
-  const done = STATUS_RETURNED;
-  const current = rows.filter((r) => r.status < done);
-  const previous = rows.filter((r) => r.status >= done);
+  const current = rows.filter((r) => REQUEST_STATUSES[r.status]?.open);
+  const previous = rows.filter((r) => !REQUEST_STATUSES[r.status]?.open);
   const shown = tab === "current" ? current : tab === "previous" ? previous : rows;
 
   return (
     <>
       <p className="lead" style={{ marginBottom: "2rem" }}>
         You have <strong>{current.length}</strong> active request{current.length === 1 ? "" : "s"}.
-        Only you can see this — it is tied to this browser.
+        Requests sent from this browser appear here.
       </p>
 
       <div className="tabs" role="tablist">
@@ -68,48 +96,47 @@ export default function Dashboard() {
 
       {shown.length ? (
         <div className="dash-grid">
-          {shown.map((r) => (
-            <article className="bcard" key={r.ref}>
-              <div className="bcard__media">
-                {r.item_image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={r.item_image} alt="" />
-                ) : null}
-              </div>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: ".6rem", alignItems: "flex-start" }}>
-                  <div>
-                    <div className="bcard__t">{itemTitle({ name: r.item_name, size: r.size })}</div>
-                    <div className="bcard__m">
-                      Collect {niceDate(r.requested_date)}, {r.requested_time}
+          {shown.map((r) => {
+            const closed = r.status === "cancelled" || r.status === "rejected";
+            return (
+              <article className="bcard" key={r.ref}>
+                <div className="bcard__media">
+                  {r.item_image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.item_image} alt="" />
+                  ) : null}
+                </div>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: ".6rem", alignItems: "flex-start" }}>
+                    <div>
+                      <div className="bcard__t">{itemTitle({ name: r.item_name, size: r.size })}</div>
+                      <div className="bcard__m">Requested {formatDay(r.created_at)}</div>
+                      <div className="bcard__m"><StatusLine r={r} /></div>
                     </div>
-                    {r.return_date && r.status < done && (
-                      <div className="bcard__m">
-                        Return by {niceDate(r.return_date)}
-                        {r.return_time ? `, ${r.return_time}` : ""} &middot; {dueLabel(r.return_date)}
-                      </div>
+                    <span className="tag">{r.ref}</span>
+                  </div>
+                  {!closed && <Track status={r.status} />}
+                  <div className="bcard__foot">
+                    <span
+                      className={`badge ${closed ? "badge--plain" : r.status === "pending" ? "badge--soon" : "badge--available"}`}
+                      style={closed ? undefined : { borderColor: "var(--olive-line)" }}
+                    >
+                      {requestLabel(r.status)}
+                    </span>
+                    {r.item_id && (
+                      <Link className="tlink" href={`/item/${r.item_id}`} style={{ marginLeft: "auto" }}>
+                        View item
+                      </Link>
                     )}
                   </div>
-                  <span className="tag">{r.ref}</span>
                 </div>
-                <Track status={r.status} />
-                <div className="bcard__foot">
-                  <span className="badge badge--available" style={{ borderColor: "var(--olive-line)" }}>
-                    {STATUS_FLOW[r.status] ?? "Request received"}
-                  </span>
-                  {r.item_id && (
-                    <Link className="tlink" href={`/item/${r.item_id}`} style={{ marginLeft: "auto" }}>
-                      View item
-                    </Link>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div className="blank">
-          <p>{tab === "previous" ? "Nothing returned yet." : "You haven't borrowed anything yet."}</p>
+          <p>{tab === "previous" ? "Nothing here yet." : "You haven't requested anything yet."}</p>
           <Link className="btn btn--primary" style={{ marginTop: "1.3rem" }} href="/catalogue">
             Browse the wardrobe
           </Link>

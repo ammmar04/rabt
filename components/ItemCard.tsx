@@ -1,6 +1,6 @@
 import Link from "next/link";
 import StatusBadge from "./StatusBadge";
-import { itemTitle, type Item } from "@/lib/types";
+import { itemStatus, itemTitle, niceDate, type Item } from "@/lib/types";
 
 export default function ItemCard({
   item,
@@ -18,7 +18,8 @@ export default function ItemCard({
    */
   reveal?: boolean;
 }) {
-  const out = item.status !== "available";
+  const out = !itemStatus(item.status).borrowable;
+  const backOn = out && itemStatus(item.status).hasReturnDate ? niceDate(item.available_from) : "";
   const title = itemTitle(item);
   return (
     <article
@@ -28,7 +29,7 @@ export default function ItemCard({
       <div className="item__media">
         <span className="tag item__tag">{item.id}</span>
         <span className="item__status">
-          <StatusBadge status={item.status} availableFrom={item.available_from} />
+          <StatusBadge status={item.status} />
         </span>
         <Link href={`/item/${item.id}`} aria-label={`View ${title}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -55,9 +56,10 @@ export default function ItemCard({
           <span>{typeLabel || item.type}</span>
           <span>{item.colour}</span>
         </div>
-        {item.size && (
+        {(item.size || backOn) && (
           <div className="item__sizes">
-            <span>Size {item.size}</span>
+            {item.size && <span>Size {item.size}</span>}
+            {backOn && <em className="item__back">Back {backOn}</em>}
           </div>
         )}
       </div>

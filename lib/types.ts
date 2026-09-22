@@ -1,5 +1,3 @@
-export type Status = "available" | "borrowed" | "soon";
-
 export type Category = {
   slug: string;
   name: string;
@@ -8,6 +6,55 @@ export type Category = {
   image: string;
   sort: number;
 };
+
+/* ------------------------------------------------------- physical status */
+
+/**
+ * Where a garment physically is right now. Deliberately separate from the
+ * state of any request for it: a request can be cancelled while the suit is
+ * in the wash, and the wash has nothing to do with the request.
+ *
+ * To add a status, add a line here — the admin selects, catalogue filters,
+ * badges and public notes all read from this list.
+ */
+export const ITEM_STATUSES = [
+  {
+    value: "available", label: "Available", badge: "available",
+    borrowable: true, hasReturnDate: false,
+    note: "",
+  },
+  {
+    value: "on_hold", label: "On hold", badge: "soon",
+    borrowable: false, hasReturnDate: false,
+    note: "Someone has requested this piece, so it is being held for them while we confirm.",
+  },
+  {
+    value: "borrowed", label: "Borrowed", badge: "borrowed",
+    borrowable: false, hasReturnDate: true,
+    note: "This piece is out on loan at the moment.",
+  },
+  {
+    value: "repair", label: "Under repair", badge: "soon",
+    borrowable: false, hasReturnDate: true,
+    note: "This piece is being repaired.",
+  },
+  {
+    value: "wash", label: "Out for wash", badge: "soon",
+    borrowable: false, hasReturnDate: true,
+    note: "This piece is being cleaned.",
+  },
+] as const;
+
+export type ItemStatus = (typeof ITEM_STATUSES)[number]["value"];
+export type ItemStatusMeta = (typeof ITEM_STATUSES)[number];
+
+export function itemStatus(value: string): ItemStatusMeta {
+  return ITEM_STATUSES.find((s) => s.value === value) ?? ITEM_STATUSES[0];
+}
+
+export function isItemStatus(value: string): value is ItemStatus {
+  return ITEM_STATUSES.some((s) => s.value === value);
+}
 
 /**
  * One row per physical garment. `size` is that garment's own size — a second
@@ -24,7 +71,9 @@ export type Item = {
   size: string;
   fit: string;
   condition: string;
-  status: Status;
+  status: ItemStatus;
+  /** The request holding this garment, while status is on_hold. */
+  hold_ref: string | null;
   available_from: string | null;
   description: string;
   measurements: string;
@@ -32,6 +81,53 @@ export type Item = {
   image_url: string;
   detail_url: string;
   archived: boolean;
+};
+
+/* -------------------------------------------------------- request status */
+
+/**
+ * Where a request is in its own lifecycle. A request that reaches
+ * "collected" has a lending record; the lending, not the request, carries the
+ * pickup and return dates.
+ */
+export const REQUEST_STATUSES = {
+  pending: { label: "Awaiting confirmation", open: true },
+  confirmed: { label: "Confirmed", open: true },
+  collected: { label: "Borrowed", open: true },
+  returned: { label: "Returned", open: false },
+  cancelled: { label: "Cancelled", open: false },
+  rejected: { label: "Unfulfilled", open: false },
+} as const;
+
+export type RequestStatus = keyof typeof REQUEST_STATUSES;
+
+/** Still holding or using a garment. */
+export const OPEN_REQUEST_STATUSES: RequestStatus[] = ["pending", "confirmed", "collected"];
+/** Not yet handed over — can still be confirmed, cancelled or marked unfulfilled. */
+export const WAITING_REQUEST_STATUSES: RequestStatus[] = ["pending", "confirmed"];
+
+export function requestLabel(status: string): string {
+  return REQUEST_STATUSES[status as RequestStatus]?.label ?? status;
+}
+
+/**
+ * Why a request did not go ahead. "Cancelled" is the request being withdrawn;
+ * "unfulfilled" is Rabt not being able to go ahead with it.
+ */
+export const CLOSE_REASONS: Record<"cancelled" | "rejected", string[]> = {
+  cancelled: [
+    "Borrower cancelled",
+    "Borrower chose a different piece",
+    "Duplicate request",
+    "Other",
+  ],
+  rejected: [
+    "Could not reach the borrower",
+    "Borrower did not collect",
+    "Piece did not fit",
+    "Piece unavailable or damaged",
+    "Other",
+  ],
 };
 
 export type Request = {
@@ -46,14 +142,46 @@ export type Request = {
   contact_value: string;
   person_name: string;
   contribution: string;
-  status: number;
-  /** Expected return, entered by the team at handover. */
-  return_date: string | null;
-  return_time: string;
-  returned_at: string | null;
+  status: RequestStatus;
+  close_reason: string;
+  close_note: string;
+  /** ISO timestamps (UTC). */
   created_at: string;
+  confirmed_at: string | null;
+  closed_at: string | null;
   /** Joined from the item so uploaded photos render, not a guessed path. */
   item_image?: string | null;
+  item_status?: ItemStatus | null;
+  item_hold_ref?: string | null;
+  /** Joined from the lending record, once handed over. */
+  lending_id?: number | null;
+  lent_at?: string | null;
+  due_date?: string | null;
+  due_time?: string | null;
+  returned_at?: string | null;
+};
+
+/**
+ * One handover of one garment. Rows are only ever added and closed, never
+ * reused, so a suit lent three times has three lendings — whatever its
+ * physical status is now.
+ */
+export type Lending = {
+  id: number;
+  request_ref: string | null;
+  item_id: string;
+  item_name: string;
+  item_size: string;
+  borrower_name: string;
+  /** ISO timestamp of the handover. */
+  lent_at: string;
+  due_date: string | null;
+  due_time: string;
+  /** ISO timestamp, set when it comes back. */
+  returned_at: string | null;
+  /** Joined from the request, for following up. */
+  contact_method?: string;
+  contact_value?: string;
 };
 
 export type Settings = {
@@ -68,40 +196,22 @@ export type Settings = {
   closed_days: string;
 };
 
-/** Catalogue page copy, edited in admin rather than in the source. */
-export type PageContent = {
-  cat_eyebrow: string;
-  cat_heading: string;
-  cat_intro: string;
-  cat_empty: string;
-};
-
-/** The lifecycle a request moves through. Index is stored on the row. */
-export const STATUS_FLOW = [
-  "Request received",
-  "Being prepared",
-  "Ready for collection",
-  "Borrowed",
-  "Return pending",
-  "Returned",
-] as const;
-
-/** Handed over — from here on the item is out and a return is owed. */
-export const STATUS_BORROWED = 3;
-export const STATUS_RETURNED = STATUS_FLOW.length - 1;
-
 /** Suggestions in the admin size field. Any size can be typed, e.g. "40". */
 export const SIZE_OPTIONS = ["XS", "S", "M", "L", "XL", "XXL"] as const;
 
-export const STATUS_LABEL: Record<Status, string> = {
-  available: "Available",
-  borrowed: "Currently borrowed",
-  soon: "Available soon",
-};
+/** The optional contribution choices offered at the end of a request. */
+export const AMOUNTS = ["Rs 200", "Rs 500", "Rs 1,000", "Another amount", "Not this time"] as const;
+
+export const CONTACT_METHODS = ["WhatsApp", "Email", "Secondary account"] as const;
 
 /** "Black Formal Suit" + "40" -> "Black Formal Suit — Size 40" */
 export function itemTitle(item: { name: string; size: string }): string {
   return item.size ? `${item.name} — Size ${item.size}` : item.name;
+}
+
+/** "{method}" -> "WhatsApp" in a piece of editable copy. */
+export function fillTokens(s: string, vars: Record<string, string>): string {
+  return s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
 
 /** "Chest: 38-42 in\nSleeve: 24 in" -> [["Chest","38-42 in"], ...] */
@@ -211,14 +321,111 @@ export function matchesAll(words: string[], tokens: string[]): boolean {
 
 /* ----------------------------------------------------------------- returns */
 
-/** Whole days from today to a YYYY-MM-DD date. Negative means it has passed. */
+/* ------------------------------------------------------------------- time */
+
+/**
+ * Rabt runs on campus in Pakistan. Dates the team and borrowers see — "due
+ * today", the days offered for collection, when a request came in — are
+ * worked out in this timezone, whatever timezone the server happens to run
+ * in (UTC on Vercel).
+ */
+export const SITE_TZ = "Asia/Karachi";
+
+function partsIn(date: Date, tz: string) {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** Today as YYYY-MM-DD, on campus. */
+export function siteToday(): string {
+  return partsIn(new Date(), SITE_TZ);
+}
+
+/** The calendar date of an instant, on campus. */
+export function siteDateOf(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : partsIn(d, SITE_TZ);
+}
+
+/** "2026-09-30" + 3 -> "2026-10-03", without timezone drift. */
+export function addDays(date: string, n: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return t.toISOString().slice(0, 10);
+}
+
+/** 0 = Sunday … 6 = Saturday, for a YYYY-MM-DD date. */
+export function weekdayOf(date: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * The seven days offered for collection, starting tomorrow on campus. The
+ * borrow form and the server both use this, so they always agree on which
+ * days were offered — even just after midnight.
+ */
+export function collectionDays(closedDays: string): { iso: string; closed: boolean }[] {
+  const closed = new Set(
+    closedDays.split(",").map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n))
+  );
+  const today = siteToday();
+  return Array.from({ length: 7 }, (_, i) => {
+    const iso = addDays(today, i + 1);
+    return { iso, closed: closed.has(weekdayOf(iso)) };
+  });
+}
+
+/** "23 Sept 2026, 14:05" — a submitted or handed-over time, on campus. */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: SITE_TZ, day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(d);
+}
+
+/** "23 Sept 2026" for an instant, on campus. */
+export function formatDay(iso: string | null | undefined): string {
+  const day = siteDateOf(iso);
+  if (!day) return "";
+  const d = new Date(day + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Whole days from one YYYY-MM-DD date to another. */
+export function daysBetween(from: string, to: string): number {
+  const a = Date.parse(from.slice(0, 10) + "T00:00:00Z");
+  const b = Date.parse(to.slice(0, 10) + "T00:00:00Z");
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** "3 hours ago", "2 days ago" — how long something has been waiting. */
+export function ago(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms)) return "";
+  const mins = Math.round(ms / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+/* ----------------------------------------------------------------- returns */
+
+/** Whole days from today (on campus) to a YYYY-MM-DD date. Negative = passed. */
 export function daysUntil(date: string | null | undefined): number | null {
-  if (!date) return null;
-  const then = new Date(String(date).slice(0, 10) + "T00:00:00");
-  if (isNaN(then.getTime())) return null;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return Math.round((then.getTime() - now.getTime()) / 86_400_000);
+  if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return null;
+  return daysBetween(siteToday(), date);
 }
 
 /** "2 days overdue", "Due today", "Due tomorrow", "In 5 days". */
@@ -238,9 +445,9 @@ export type ReturnBucket =
 /** Days ahead that still counts as "due soon". */
 export const DUE_SOON_DAYS = 7;
 
-export function returnBucket(r: Request): ReturnBucket {
-  if (r.status >= STATUS_RETURNED) return "returned";
-  const d = daysUntil(r.return_date);
+export function returnBucket(l: Pick<Lending, "returned_at" | "due_date">): ReturnBucket {
+  if (l.returned_at) return "returned";
+  const d = daysUntil(l.due_date);
   if (d === null) return "undated";
   if (d < 0) return "overdue";
   if (d === 0) return "today";
@@ -248,9 +455,11 @@ export function returnBucket(r: Request): ReturnBucket {
   return "scheduled";
 }
 
-/** Splits handed-over borrowings into the groups the Returns view shows. */
-export function groupReturns(rows: Request[]): Record<ReturnBucket, Request[]> {
-  const out: Record<ReturnBucket, Request[]> = {
+/** Splits lendings into the groups the Returns view shows. */
+export function groupReturns<T extends Pick<Lending, "returned_at" | "due_date">>(
+  rows: T[]
+): Record<ReturnBucket, T[]> {
+  const out: Record<ReturnBucket, T[]> = {
     overdue: [], today: [], soon: [], scheduled: [], undated: [], returned: [],
   };
   for (const r of rows) out[returnBucket(r)].push(r);
@@ -258,7 +467,7 @@ export function groupReturns(rows: Request[]): Record<ReturnBucket, Request[]> {
 }
 
 /** How many returns the team should be looking at right now. */
-export function needsAttention(rows: Request[]): {
+export function needsAttention(rows: Pick<Lending, "returned_at" | "due_date">[]): {
   overdue: number; today: number; soon: number; undated: number; total: number;
 } {
   const g = groupReturns(rows);

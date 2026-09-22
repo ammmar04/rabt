@@ -3,18 +3,26 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  archiveItem, createItem, getItem, getRequest, nextItemId,
-  saveContent, saveSettings, setExpectedReturn, setItemStatus,
-  setRequestStatus, updateItem,
+  archiveItem, closeRequest, confirmRequest, createItem, findItemById, getCategories,
+  getItem, getLending, getRequest, handOver, removePersonalDetails, returnLending,
+  savePageContent, saveSettings, setItemStatus, setLendingDue, updateItem,
 } from "@/lib/queries";
 import { checkPassword, endSession, requireAdmin, startSession } from "@/lib/auth";
 import { clientKey, hit } from "@/lib/ratelimit";
 import { saveUpload } from "@/lib/storage";
 import type { ItemInput } from "@/lib/queries";
-import type { PageContent, Settings, Status } from "@/lib/types";
-import { STATUS_BORROWED, STATUS_FLOW, STATUS_RETURNED } from "@/lib/types";
+import { isItemStatus, itemStatus, siteDateOf } from "@/lib/types";
+import {
+  firstError, fromFormData, validateClose, validateItem, validateReturnDue, validateSettings,
+  type ActionState,
+} from "@/lib/forms";
+import { findPage, validatePage } from "@/lib/content";
+import { cleanLine } from "@/lib/validate";
 
-const str = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
+const str = (fd: FormData, k: string) => cleanLine(fd.get(k));
+
+/** Every page that shows items, requests or content reads fresh after a change. */
+const refreshSite = () => revalidatePath("/", "layout");
 
 /* ------------------------------------------------------------ sign in/out */
 export async function signIn(_prev: unknown, fd: FormData): Promise<{ error?: string }> {
@@ -28,6 +36,8 @@ export async function signIn(_prev: unknown, fd: FormData): Promise<{ error?: st
   }
 
   const password = String(fd.get("password") ?? "");
+  if (!password) return { error: "Enter the password." };
+  if (password.length > 200) return { error: "That password is not right." };
   // small constant delay to blunt fast guessing
   await new Promise((r) => setTimeout(r, 400));
   if (!checkPassword(password)) return { error: "That password is not right." };
@@ -41,45 +51,27 @@ export async function signOut(): Promise<void> {
 }
 
 /* ---------------------------------------------------------------- items */
-function itemFromForm(fd: FormData, id: string, imageUrl: string, detailUrl: string): ItemInput {
-  const status = (str(fd, "status") || "available") as Status;
-  return {
-    id,
-    name: str(fd, "name"),
-    category: str(fd, "category"),
-    type: str(fd, "type"),
-    colour: str(fd, "colour"),
-    colour_hex: str(fd, "colour_hex") || "#8A8A82",
-    size: str(fd, "size"),
-    fit: str(fd, "fit"),
-    condition: str(fd, "condition"),
-    status,
-    // The form offers "Back on" for anything that is not available, so a
-    // borrowed item keeps its due-back date instead of losing it on save.
-    available_from: status === "available" ? "" : str(fd, "available_from"),
-    description: str(fd, "description"),
-    measurements: str(fd, "measurements"),
-    care: str(fd, "care"),
-    image_url: imageUrl,
-    detail_url: detailUrl,
-  };
-}
 
-export type SaveResult = { error?: string };
-
-/** Creates or updates one item, including its photo. */
-export async function saveItem(_prev: unknown, fd: FormData): Promise<SaveResult> {
+/** Creates or updates one garment, including its photo. */
+export async function saveItem(_prev: unknown, fd: FormData): Promise<ActionState> {
   await requireAdmin();
 
-  const editingId = str(fd, "id");
-  const name = str(fd, "name");
-  const category = str(fd, "category");
-  if (!name) return { error: "Give the item a name." };
-  if (!category) return { error: "Choose a category." };
-  if (!str(fd, "size")) return { error: "Give the item a size." };
-
+  const editingId = str(fd, "editing");
   const existing = editingId ? await getItem(editingId) : null;
   if (editingId && !existing) return { error: "That item no longer exists." };
+
+  const categories = (await getCategories()).map((c) => c.slug);
+  const { values, errors } = validateItem(fromFormData(fd), { isNew: !existing, categories });
+
+  // The ID is the team's own numbering, so a clash is caught here rather
+  // than silently renumbered.
+  if (!existing && values.id) {
+    const clash = await findItemById(values.id);
+    if (clash) {
+      errors.id = `${clash.id} is already used by ${clash.name}${clash.archived ? " (a removed item — its history still uses the ID)" : ""}. Choose another ID.`;
+    }
+  }
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
 
   let imageUrl = existing?.image_url ?? "";
   let detailUrl = existing?.detail_url ?? "";
@@ -87,42 +79,56 @@ export async function saveItem(_prev: unknown, fd: FormData): Promise<SaveResult
   const photo = fd.get("photo");
   if (photo instanceof File && photo.size > 0) {
     try {
-      imageUrl = await saveUpload(photo, name);
+      imageUrl = await saveUpload(photo, values.name);
     } catch (e) {
-      return { error: e instanceof Error ? e.message : "That photo could not be saved." };
+      const msg = e instanceof Error ? e.message : "That photo could not be saved.";
+      return { error: msg, fields: { photo: msg } };
     }
   }
   const second = fd.get("photo2");
   if (second instanceof File && second.size > 0) {
     try {
-      detailUrl = await saveUpload(second, `${name}-detail`);
+      detailUrl = await saveUpload(second, `${values.name}-detail`);
     } catch (e) {
-      return { error: e instanceof Error ? e.message : "That photo could not be saved." };
+      const msg = e instanceof Error ? e.message : "That photo could not be saved.";
+      return { error: msg, fields: { photo2: msg } };
     }
   }
+  if (!imageUrl) return { error: "Add a photo of the item.", fields: { photo: "Add a photo of the item." } };
 
-  if (!imageUrl) return { error: "Add a photo of the item." };
+  const input: Omit<ItemInput, "id"> = {
+    name: values.name,
+    category: values.category,
+    type: values.type,
+    colour: values.colour,
+    colour_hex: values.colour_hex,
+    size: values.size,
+    fit: values.fit,
+    condition: values.condition,
+    status: values.status,
+    available_from: values.available_from,
+    description: values.description,
+    measurements: values.measurements,
+    care: values.care,
+    image_url: imageUrl,
+    detail_url: detailUrl,
+  };
 
   if (existing) {
-    await updateItem(existing.id, itemFromForm(fd, existing.id, imageUrl, detailUrl));
+    await updateItem(existing.id, { ...input, id: existing.id });
   } else {
-    // Two people adding at once could pick the same id, so retry on collision
-    // rather than showing them a database error.
-    let saved = false;
-    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
-      const id = await nextItemId(category);
-      try {
-        await createItem(itemFromForm(fd, id, imageUrl, detailUrl));
-        saved = true;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "";
-        if (!/duplicate key|unique constraint/i.test(msg)) throw e;
-      }
+    try {
+      await createItem({ ...input, id: values.id });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (!/duplicate key|unique constraint/i.test(msg)) throw e;
+      // Someone else saved the same ID a moment ago.
+      const taken = `${values.id} was just taken. Choose another ID.`;
+      return { error: taken, fields: { id: taken } };
     }
-    if (!saved) return { error: "Could not allocate an item number. Please try again." };
   }
 
-  revalidatePath("/", "layout");
+  refreshSite();
   redirect("/admin/items");
 }
 
@@ -130,128 +136,125 @@ export async function removeItem(fd: FormData): Promise<void> {
   await requireAdmin();
   const id = str(fd, "id");
   if (id) await archiveItem(id);
-  revalidatePath("/", "layout");
+  refreshSite();
   redirect("/admin/items");
 }
 
+/** Changes a garment's physical status by hand. Requests and history are untouched. */
 export async function quickStatus(fd: FormData): Promise<void> {
   await requireAdmin();
   const id = str(fd, "id");
   const status = str(fd, "status");
-  if (id && status) await setItemStatus(id, status, str(fd, "available_from"));
-  revalidatePath("/", "layout");
+  if (!id || !isItemStatus(status)) return;
+  const item = await getItem(id);
+  if (!item) return;
+  // A due-back date only means something while it is off the rail.
+  const keepDate = itemStatus(status).hasReturnDate ? item.available_from ?? "" : "";
+  await setItemStatus(id, status, keepDate);
+  refreshSite();
 }
 
 /* -------------------------------------------------------------- requests */
 
-export async function updateRequest(fd: FormData): Promise<void> {
+export async function confirmRequestAction(fd: FormData): Promise<void> {
   await requireAdmin();
   const ref = str(fd, "ref");
-  const status = Number(str(fd, "status"));
-  if (!ref || !Number.isFinite(status)) return;
-  if (status < 0 || status >= STATUS_FLOW.length) return;
+  if (ref) await confirmRequest(ref);
+  refreshSite();
+}
 
-  const request = await getRequest(ref);
-  await setRequestStatus(ref, status);
+/** Cancels a request, or records that it couldn't be fulfilled, with the reason. */
+export async function closeRequestAction(_prev: unknown, fd: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const ref = str(fd, "ref");
+  const { values, errors } = validateClose(fromFormData(fd));
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
 
-  if (request?.item_id) {
-    const item = await getItem(request.item_id);
-    if (status >= STATUS_RETURNED) {
-      await setItemStatus(request.item_id, "available", "");
-    } else if (status >= STATUS_BORROWED) {
-      await setItemStatus(request.item_id, "borrowed", request.return_date ?? "");
-    } else if (item?.status === "borrowed") {
-      // Moved back before handover: the garment is not out after all.
-      // "Available soon" is left alone — that is someone marking it for
-      // cleaning or repair, which has nothing to do with this request.
-      await setItemStatus(request.item_id, "available", "");
-    }
-  }
-
-  revalidatePath("/", "layout");
+  const done = await closeRequest(ref, values.status, values.reason, values.note);
+  if (!done) return { error: "That request has already been handed over or closed. Refresh to see where it is now." };
+  refreshSite();
+  return { ok: true };
 }
 
 /**
- * The expected return, entered by the team at handover rather than asked of
- * the borrower up front. Also carried onto the item so its page can say when
- * it is due back.
+ * The handover: the borrower collects, the team records the expected return,
+ * and a lending record opens.
  */
-export async function saveExpectedReturn(fd: FormData): Promise<void> {
+export async function handOverAction(_prev: unknown, fd: FormData): Promise<ActionState> {
   await requireAdmin();
   const ref = str(fd, "ref");
-  if (!ref) return;
-
-  const date = str(fd, "return_date");
-  const time = str(fd, "return_time");
-  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-  if (time && !/^\d{1,2}:\d{2}$/.test(time)) return;
-
   const request = await getRequest(ref);
-  if (!request) return;
+  if (!request) return { error: "That request no longer exists." };
 
-  await setExpectedReturn(ref, date, time);
+  const { values, errors } = validateReturnDue(fromFormData(fd));
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
 
-  // Setting a return date is the handover, so a request still sitting earlier
-  // in the flow moves on. Saving with the date blank — clearing a mistake, or
-  // a garment already out — must not mark anything as handed over on its own.
-  const handedOver = date !== "" || request.status >= STATUS_BORROWED;
-  const status = handedOver ? Math.max(request.status, STATUS_BORROWED) : request.status;
-
-  if (status !== request.status) await setRequestStatus(ref, status);
-  if (request.item_id && handedOver && status < STATUS_RETURNED) {
-    await setItemStatus(request.item_id, "borrowed", date);
-  }
-
-  revalidatePath("/", "layout");
+  const done = await handOver(ref, values.due_date, values.due_time);
+  if (!done) return { error: "That request has already been handed over or closed. Refresh to see where it is now." };
+  refreshSite();
+  return { ok: true };
 }
 
-/** Marks a borrowing returned and puts the item back on the rail. */
+/** Changes the expected return on something already out. */
+export async function saveLendingDue(_prev: unknown, fd: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const lending = await getLending(Number(str(fd, "lending")));
+  if (!lending) return { error: "That borrowing no longer exists." };
+  if (lending.returned_at) return { error: "That piece has already been returned." };
+
+  const { values, errors } = validateReturnDue(fromFormData(fd), {
+    from: siteDateOf(lending.lent_at) ?? undefined,
+  });
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
+
+  await setLendingDue(lending.id, values.due_date, values.due_time);
+  refreshSite();
+  return { ok: true };
+}
+
+/** Records a return. The garment goes to the chosen status — usually back on the rail. */
 export async function markReturned(fd: FormData): Promise<void> {
   await requireAdmin();
+  const id = Number(str(fd, "lending"));
+  const next = str(fd, "next") || "available";
+  if (!Number.isInteger(id) || !isItemStatus(next)) return;
+  // Straight back out to someone else only happens through a new request.
+  if (next === "borrowed" || next === "on_hold") return;
+  await returnLending(id, next);
+  refreshSite();
+}
+
+/** Clears a borrower's name and contact detail from the records, keeping the history. */
+export async function removeDetailsAction(fd: FormData): Promise<void> {
+  await requireAdmin();
   const ref = str(fd, "ref");
-  if (!ref) return;
-  const request = await getRequest(ref);
-  if (!request) return;
-
-  await setRequestStatus(ref, STATUS_RETURNED);
-  if (request.item_id) await setItemStatus(request.item_id, "available", "");
-
-  revalidatePath("/", "layout");
+  if (ref) await removePersonalDetails(ref);
+  revalidatePath("/admin", "layout");
 }
 
 /* -------------------------------------------------------------- settings */
-export async function updateSettings(_prev: unknown, fd: FormData): Promise<{ ok?: boolean; error?: string }> {
+export async function updateSettings(_prev: unknown, fd: FormData): Promise<ActionState> {
   await requireAdmin();
-  const s: Settings = {
-    whatsapp: str(fd, "whatsapp"),
-    email: str(fd, "email"),
-    instagram: str(fd, "instagram"),
-    pay_title: str(fd, "pay_title") || "Bank transfer",
-    pay_line1: str(fd, "pay_line1"),
-    pay_line2: str(fd, "pay_line2"),
-    pay_line3: str(fd, "pay_line3"),
-    slots: str(fd, "slots") || "10:00,11:00,12:00,14:00,15:00,16:00,17:00",
-    closed_days: str(fd, "closed_days"),
-  };
-  await saveSettings(s);
-  revalidatePath("/", "layout");
+  const { values, errors } = validateSettings(fromFormData(fd));
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
+  await saveSettings(values);
+  refreshSite();
   return { ok: true };
 }
 
 /* --------------------------------------------------------- page content */
-export async function updateContent(
-  _prev: unknown,
-  fd: FormData
-): Promise<{ ok?: boolean; error?: string }> {
+export async function updateContent(_prev: unknown, fd: FormData): Promise<ActionState> {
   await requireAdmin();
-  const c: PageContent = {
-    cat_eyebrow: str(fd, "cat_eyebrow").slice(0, 60),
-    cat_heading: str(fd, "cat_heading").slice(0, 120),
-    cat_intro: str(fd, "cat_intro").slice(0, 400),
-    cat_empty: str(fd, "cat_empty").slice(0, 200),
-  };
-  if (!c.cat_heading) return { error: "The catalogue needs a heading." };
-  await saveContent(c);
-  revalidatePath("/", "layout");
+  const page = findPage(str(fd, "page"));
+  if (!page) return { error: "That page can't be edited." };
+
+  const { values, errors } = validatePage(page, (k) => {
+    const v = fd.get(k);
+    return typeof v === "string" ? v : null;
+  });
+  if (Object.keys(errors).length) return { error: firstError(errors), fields: errors };
+
+  await savePageContent(page.page, values);
+  refreshSite();
   return { ok: true };
 }

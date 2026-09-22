@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCategories, getItems } from "@/lib/queries";
+import { getCategories, getItems, getPageCopy } from "@/lib/queries";
 import ItemCard from "@/components/ItemCard";
 import Steps from "@/components/Steps";
 
@@ -12,7 +12,9 @@ const CHECK = (
 );
 
 export default async function Home() {
-  const [categories, items] = await Promise.all([getCategories(), getItems()]);
+  const [categories, items, c, how] = await Promise.all([
+    getCategories(), getItems(), getPageCopy("home"), getPageCopy("how-it-works"),
+  ]);
   const available = items.filter((i) => i.status === "available");
   const featured = available.slice(0, 8);
   const byCat = new Map(categories.map((c) => [c.slug, c]));
@@ -30,24 +32,24 @@ export default async function Home() {
             a phone. The longer explanation lives further down and on
             /how-it-works. */}
         <div className="wrap hero__in">
-          <span className="label label--olive">The campus wardrobe</span>
-          <h1>Borrow what you need.</h1>
-          <p className="lead">Formal clothing, free to borrow, open to everyone.</p>
+          <span className="label label--olive">{c.t("hero_eyebrow")}</span>
+          <h1>{c.t("hero_heading")}</h1>
+          <p className="lead">{c.t("hero_lead")}</p>
           <div className="btn-row">
             <Link className="btn btn--primary btn--lg" href="/catalogue">Browse the wardrobe</Link>
             <Link className="btn btn--ghost btn--lg" href="/how-it-works">How it works</Link>
           </div>
           <div className="hero__meta">
             <span>{CHECK}<strong>&nbsp;{available.length}</strong>&nbsp;pieces available now</span>
-            <span>{CHECK}No forms about why you need it</span>
+            {c.t("hero_point") && <span>{CHECK}{c.t("hero_point")}</span>}
           </div>
         </div>
       </section>
 
       <section className="wrap section">
         <div className="head reveal" style={{ marginBottom: "clamp(1.6rem,3vw,2.4rem)" }}>
-          <span className="label">Browse by</span>
-          <h2>Start with what you need.</h2>
+          <span className="label">{c.t("browse_eyebrow")}</span>
+          <h2>{c.t("browse_heading")}</h2>
         </div>
         <div className="cat-grid">
           {categories.map((c, i) => {
@@ -70,8 +72,8 @@ export default async function Home() {
 
       <section className="wrap section--tight">
         <div className="head reveal" style={{ marginBottom: "clamp(1.4rem,3vw,2rem)" }}>
-          <span className="label">On the rail</span>
-          <h2>Available right now.</h2>
+          <span className="label">{c.t("featured_eyebrow")}</span>
+          <h2>{c.t("featured_heading")}</h2>
         </div>
         {featured.length ? (
           <div className="items items--4">
@@ -80,7 +82,7 @@ export default async function Home() {
             ))}
           </div>
         ) : (
-          <div className="blank"><p>Nothing on the rail just yet — check back shortly.</p></div>
+          <div className="blank"><p>{c.t("featured_empty")}</p></div>
         )}
         <div className="center" style={{ marginTop: "2.4rem" }}>
           <Link className="btn btn--ghost btn--lg" href="/catalogue">See the whole wardrobe</Link>
@@ -89,10 +91,10 @@ export default async function Home() {
 
       <section className="section--tight">
         <div className="wrap head reveal" style={{ marginBottom: "1.6rem" }}>
-          <span className="label">How it works</span>
-          <h2>Four steps, and none of them awkward.</h2>
+          <span className="label">{c.t("steps_eyebrow")}</span>
+          <h2>{c.t("steps_heading")}</h2>
         </div>
-        <Steps />
+        <Steps steps={how.list("steps")} />
       </section>
 
       <section className="wrap section">
@@ -102,22 +104,11 @@ export default async function Home() {
             <img src="/img/scene/about.svg" alt="Clothing from the Rabt wardrobe" width={1200} height={800} loading="lazy" />
           </div>
           <div className="split__body reveal" data-d={1}>
-            <span className="label">The idea</span>
-            <h2 style={{ marginTop: ".6rem" }}>A wardrobe nobody owns.</h2>
-            <p>
-              Most of us need formal clothes a handful of times a year &mdash; an interview,
-              a presentation, a defence, anything with a dress code. Buying a suit for one
-              of them rarely makes sense, and borrowing from a friend depends on having a
-              friend your size.
-            </p>
-            <p>
-              Rabt is the in-between: a shared rail that anyone on campus can use, kept
-              going by people passing on things they no longer wear. Free to borrow, no
-              eligibility check and no explaining why you need it. You borrow it, you
-              return it, someone else borrows it next.
-            </p>
+            <span className="label">{c.t("idea_eyebrow")}</span>
+            <h2 style={{ marginTop: ".6rem" }}>{c.t("idea_heading")}</h2>
+            {c.paras("idea_body").map((p, i) => <p key={i}>{p}</p>)}
             <Link className="tlink" href="/about" style={{ marginTop: ".4rem" }}>
-              More about Rabt
+              {c.t("idea_link")}
               <svg width="20" height="8" viewBox="0 0 20 8" fill="none" stroke="currentColor" strokeWidth="1.3">
                 <path d="M0 4h18M15 1l3 3-3 3" />
               </svg>
@@ -133,12 +124,9 @@ export default async function Home() {
             <img src="/img/scene/contribute.svg" alt="Formal clothing ready to be shared" width={1200} height={800} loading="lazy" />
           </div>
           <div className="split__body reveal" data-d={1}>
-            <span className="label">Contribute</span>
-            <h2 style={{ marginTop: ".6rem" }}>Have something worth sharing?</h2>
-            <p>
-              A blazer that no longer fits, a shirt you have not worn in two years, a suit
-              from a wedding. If it is clean and in good condition, it will get used.
-            </p>
+            <span className="label">{c.t("contribute_eyebrow")}</span>
+            <h2 style={{ marginTop: ".6rem" }}>{c.t("contribute_heading")}</h2>
+            {c.paras("contribute_body").map((p, i) => <p key={i}>{p}</p>)}
             <div className="btn-row" style={{ marginTop: "1.4rem" }}>
               <Link className="btn btn--primary" href="/contribute">How to contribute</Link>
             </div>

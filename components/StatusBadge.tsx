@@ -1,19 +1,7 @@
-import { niceDate, type Status } from "@/lib/types";
+import { itemStatus } from "@/lib/types";
 
-export default function StatusBadge({
-  status,
-  availableFrom,
-}: {
-  status: Status | string;
-  availableFrom?: string | null;
-}) {
-  if (status === "available") return <span className="badge badge--available">Available</span>;
-  if (status === "soon") {
-    return (
-      <span className="badge badge--soon">
-        {availableFrom ? `From ${niceDate(availableFrom)}` : "Available soon"}
-      </span>
-    );
-  }
-  return <span className="badge badge--borrowed">Currently borrowed</span>;
+/** A garment's physical status, as a stamped badge. */
+export default function StatusBadge({ status }: { status: string }) {
+  const s = itemStatus(status);
+  return <span className={`badge badge--${s.badge}`}>{s.label}</span>;
 }

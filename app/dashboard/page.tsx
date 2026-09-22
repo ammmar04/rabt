@@ -3,7 +3,7 @@ import Dashboard from "@/components/Dashboard";
 
 export const metadata: Metadata = {
   title: "My Rabt",
-  description: "Your current and previous borrowings.",
+  description: "Your current and previous requests.",
 };
 
 export default function DashboardPage() {
@@ -11,7 +11,7 @@ export default function DashboardPage() {
     <>
       <section className="wrap page-head">
         <span className="label label--olive">My Rabt</span>
-        <h1 style={{ marginTop: "1rem" }}>Your borrowing.</h1>
+        <h1 style={{ marginTop: "1rem" }}>Your requests.</h1>
       </section>
       <section className="wrap section--tight">
         <Dashboard />

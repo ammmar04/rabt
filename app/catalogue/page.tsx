@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getCategories, getContent, getItems } from "@/lib/queries";
+import { getCategories, getItems, getPageCopy } from "@/lib/queries";
 import CatalogueBrowser from "@/components/CatalogueBrowser";
 
 export const dynamic = "force-dynamic";
@@ -16,24 +16,24 @@ export default async function CataloguePage({
   searchParams: Promise<{ category?: string }>;
 }) {
   const { category } = await searchParams;
-  const [items, categories, content] = await Promise.all([
-    getItems(), getCategories(), getContent(),
+  const [items, categories, c] = await Promise.all([
+    getItems(), getCategories(), getPageCopy("catalogue"),
   ]);
-  const valid = categories.some((c) => c.slug === category) ? category : undefined;
+  const valid = categories.some((x) => x.slug === category) ? category : undefined;
 
   return (
     <>
       <section className="wrap page-head page-head--tight">
-        {content.cat_eyebrow && <span className="label label--olive">{content.cat_eyebrow}</span>}
-        <h1 style={{ marginTop: "1rem" }}>{content.cat_heading}</h1>
-        {content.cat_intro && <p className="lead">{content.cat_intro}</p>}
+        {c.t("eyebrow") && <span className="label label--olive">{c.t("eyebrow")}</span>}
+        <h1 style={{ marginTop: "1rem" }}>{c.t("heading")}</h1>
+        {c.t("intro") && <p className="lead">{c.t("intro")}</p>}
       </section>
       <section className="wrap section--tight">
         <CatalogueBrowser
           items={items}
           categories={categories}
           initialCategory={valid}
-          content={content}
+          emptyText={c.t("empty")}
         />
       </section>
     </>

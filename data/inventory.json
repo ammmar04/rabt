@@ -35,14 +35,6 @@
     ],
     "closedDays": [
       0
-    ],
-    "statusFlow": [
-      "Request received",
-      "Being prepared",
-      "Ready for collection",
-      "Borrowed",
-      "Return pending",
-      "Returned"
     ]
   },
   "categories": [
@@ -376,9 +368,9 @@
       "size": "L",
       "fit": "Regular",
       "condition": "Excellent",
-      "status": "soon",
+      "status": "wash",
       "availableFrom": "2026-09-24",
-      "description": "Jacket, waistcoat and trousers. Currently being dry cleaned — worth the wait if you have something formal coming up.",
+      "description": "Jacket, waistcoat and trousers.",
       "measurements": {
         "Chest": "42–46 in",
         "Shoulder": "19 in",
@@ -402,7 +394,7 @@
       "condition": "Excellent",
       "status": "available",
       "availableFrom": null,
-      "description": "Jacket, waistcoat and trousers. Currently being dry cleaned — worth the wait if you have something formal coming up.",
+      "description": "Jacket, waistcoat and trousers.",
       "measurements": {
         "Chest": "42–46 in",
         "Shoulder": "19 in",
@@ -886,7 +878,7 @@
       "condition": "Good",
       "status": "borrowed",
       "availableFrom": "2026-09-26",
-      "description": "A muted grey shirt that sits well under darker jackets. Currently out with someone else.",
+      "description": "A muted grey shirt that sits well under darker jackets.",
       "measurements": {
         "Chest": "42–46 in",
         "Collar": "16–17 in",
@@ -909,7 +901,7 @@
       "condition": "Good",
       "status": "available",
       "availableFrom": null,
-      "description": "A muted grey shirt that sits well under darker jackets. Currently out with someone else.",
+      "description": "A muted grey shirt that sits well under darker jackets.",
       "measurements": {
         "Chest": "42–46 in",
         "Collar": "16–17 in",
@@ -1183,9 +1175,9 @@
       "size": "M",
       "fit": "Relaxed",
       "condition": "Good",
-      "status": "soon",
+      "status": "repair",
       "availableFrom": "2026-09-24",
-      "description": "Single-pleat trousers with a roomier seat and thigh. Being repaired at the moment — back shortly.",
+      "description": "Single-pleat trousers with a roomier seat and thigh.",
       "measurements": {
         "Waist": "34–42 in",
         "Inseam": "32 in",
@@ -1208,7 +1200,7 @@
       "condition": "Good",
       "status": "available",
       "availableFrom": null,
-      "description": "Single-pleat trousers with a roomier seat and thigh. Being repaired at the moment — back shortly.",
+      "description": "Single-pleat trousers with a roomier seat and thigh.",
       "measurements": {
         "Waist": "34–42 in",
         "Inseam": "32 in",
@@ -1231,7 +1223,7 @@
       "condition": "Good",
       "status": "available",
       "availableFrom": null,
-      "description": "Single-pleat trousers with a roomier seat and thigh. Being repaired at the moment — back shortly.",
+      "description": "Single-pleat trousers with a roomier seat and thigh.",
       "measurements": {
         "Waist": "34–42 in",
         "Inseam": "32 in",

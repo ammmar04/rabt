@@ -1,9 +1,8 @@
 /**
  * Which requests belong to this visitor.
  *
- * Rabt deliberately has no user accounts, so the browser remembers the
- * reference numbers it created and the dashboard asks the server for just
- * those. Nothing identifying is stored.
+ * Rabt has no user accounts, so the browser remembers the reference numbers
+ * it created and the dashboard asks the server for just those.
  */
 const KEY = "rabt_refs_v1";
 

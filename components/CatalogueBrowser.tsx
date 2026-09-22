@@ -3,19 +3,16 @@
 import { useMemo, useState } from "react";
 import ItemCard from "./ItemCard";
 import {
-  SIZE_OPTIONS, descriptionWords, matchesAll, searchTokens, searchWords,
-  type Category, type Item, type PageContent,
+  ITEM_STATUSES, SIZE_OPTIONS, descriptionWords, matchesAll, searchTokens, searchWords,
+  type Category, type Item,
 } from "@/lib/types";
 
 type Filters = { category: string[]; size: string[]; colour: string[]; avail: string[] };
 
 const EMPTY: Filters = { category: [], size: [], colour: [], avail: [] };
 
-const AVAIL = [
-  ["available", "Available now"],
-  ["soon", "Available soon"],
-  ["borrowed", "Currently borrowed"],
-] as const;
+/** One chip per physical status, so a new status shows up here by itself. */
+const AVAIL = ITEM_STATUSES.map((s) => [s.value, s.value === "available" ? "Available now" : s.label] as const);
 
 /** Letter sizes in wearing order, then numeric sizes, then anything else. */
 function bySize(a: string, b: string): number {
@@ -33,12 +30,13 @@ export default function CatalogueBrowser({
   items,
   categories,
   initialCategory,
-  content,
+  emptyText,
 }: {
   items: Item[];
   categories: Category[];
   initialCategory?: string;
-  content: PageContent;
+  /** Editable no-results message (Content → Catalogue). */
+  emptyText: string;
 }) {
   const [f, setF] = useState<Filters>(
     initialCategory ? { ...EMPTY, category: [initialCategory] } : EMPTY
@@ -142,6 +140,7 @@ export default function CatalogueBrowser({
             <input
               id="cat-search"
               type="search"
+              maxLength={80}
               placeholder="Blazer, navy, size M…"
               autoComplete="off"
               value={query}
@@ -229,7 +228,7 @@ export default function CatalogueBrowser({
           </div>
         ) : (
           <div className="empty">
-            <p>{content.cat_empty}</p>
+            <p>{emptyText}</p>
             {activeCount > 0 && (
               <button className="btn btn--ghost" type="button" style={{ marginTop: "1.2rem" }} onClick={clear}>
                 Clear filters

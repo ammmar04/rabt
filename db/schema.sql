@@ -1,8 +1,13 @@
 -- Rabt schema. Runs on Neon Postgres in production and PGlite locally.
 --
 -- Every physical garment is one row in `items`: one size, one colour, one
--- availability state, one borrowing history. Two suits of the same cut in
--- different sizes are two rows, not one row with two sizes.
+-- physical status. Requests move through their own lifecycle, separate from
+-- where the garment physically is, and every handover is its own row in
+-- `lendings`, so an item's history is never overwritten by its current state.
+--
+-- Statements here must stay idempotent: this file runs on every cold start.
+-- Changes to existing data (type changes, moving columns) live in
+-- lib/migrate.ts instead.
 
 CREATE TABLE IF NOT EXISTS categories (
   slug      TEXT PRIMARY KEY,
@@ -14,7 +19,7 @@ CREATE TABLE IF NOT EXISTS categories (
 );
 
 CREATE TABLE IF NOT EXISTS items (
-  id            TEXT PRIMARY KEY,
+  id            TEXT PRIMARY KEY,                  -- assigned by the team
   name          TEXT NOT NULL,
   category      TEXT NOT NULL REFERENCES categories(slug),
   type          TEXT NOT NULL DEFAULT '',
@@ -23,8 +28,9 @@ CREATE TABLE IF NOT EXISTS items (
   size          TEXT NOT NULL DEFAULT '',          -- one physical garment, one size
   fit           TEXT NOT NULL DEFAULT '',
   condition     TEXT NOT NULL DEFAULT '',
-  status        TEXT NOT NULL DEFAULT 'available', -- available | borrowed | soon
-  available_from DATE,
+  status        TEXT NOT NULL DEFAULT 'available', -- physical status, see ITEM_STATUSES
+  hold_ref      TEXT,                              -- request holding it, while on_hold
+  available_from DATE,                             -- expected back, when not available
   description   TEXT NOT NULL DEFAULT '',
   measurements  TEXT NOT NULL DEFAULT '',          -- "Chest: 38-42 in\nSleeve: 24 in"
   care          TEXT NOT NULL DEFAULT '',
@@ -35,9 +41,8 @@ CREATE TABLE IF NOT EXISTS items (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Databases created before each garment became its own row: add the column so
--- the split in lib/migrate.ts has somewhere to write.
 ALTER TABLE items ADD COLUMN IF NOT EXISTS size TEXT NOT NULL DEFAULT '';
+ALTER TABLE items ADD COLUMN IF NOT EXISTS hold_ref TEXT;
 
 CREATE TABLE IF NOT EXISTS requests (
   ref             TEXT PRIMARY KEY,
@@ -50,18 +55,36 @@ CREATE TABLE IF NOT EXISTS requests (
   contact_value   TEXT NOT NULL DEFAULT '',
   person_name     TEXT NOT NULL DEFAULT '',
   contribution    TEXT NOT NULL DEFAULT '',
-  status          INT  NOT NULL DEFAULT 0,
-  return_date     DATE,                            -- agreed at handover, not at request
-  return_time     TEXT NOT NULL DEFAULT '',
-  returned_at     TIMESTAMPTZ,
+  status          TEXT NOT NULL DEFAULT 'pending', -- see REQUEST_STATUSES
+  close_reason    TEXT NOT NULL DEFAULT '',        -- why it was cancelled / unfulfilled
+  close_note      TEXT NOT NULL DEFAULT '',
+  confirmed_at    TIMESTAMPTZ,
+  closed_at       TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Existing databases predate the handover return date.
-ALTER TABLE requests ADD COLUMN IF NOT EXISTS return_date DATE;
-ALTER TABLE requests ADD COLUMN IF NOT EXISTS return_time TEXT NOT NULL DEFAULT '';
-ALTER TABLE requests ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS close_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS close_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
+
+-- One row per handover. Opened when a garment is handed over, closed when it
+-- comes back, never reused.
+CREATE TABLE IF NOT EXISTS lendings (
+  id             SERIAL PRIMARY KEY,
+  request_ref    TEXT UNIQUE,
+  item_id        TEXT NOT NULL,
+  item_name      TEXT NOT NULL DEFAULT '',
+  item_size      TEXT NOT NULL DEFAULT '',
+  borrower_name  TEXT NOT NULL DEFAULT '',
+  lent_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  due_date       DATE,
+  due_time       TEXT NOT NULL DEFAULT '',
+  returned_at    TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS settings (
   id             INT PRIMARY KEY DEFAULT 1,
@@ -77,13 +100,17 @@ CREATE TABLE IF NOT EXISTS settings (
   CONSTRAINT settings_singleton CHECK (id = 1)
 );
 
--- Catalogue page copy, edited in admin rather than in the source.
-ALTER TABLE settings ADD COLUMN IF NOT EXISTS cat_eyebrow TEXT NOT NULL DEFAULT 'The wardrobe';
-ALTER TABLE settings ADD COLUMN IF NOT EXISTS cat_heading TEXT NOT NULL DEFAULT 'Everything on the rail.';
-ALTER TABLE settings ADD COLUMN IF NOT EXISTS cat_intro TEXT NOT NULL DEFAULT 'Borrow any of it, free. Items already out are still listed, with the date they are due back.';
-ALTER TABLE settings ADD COLUMN IF NOT EXISTS cat_empty TEXT NOT NULL DEFAULT 'Nothing matches that just yet.';
+-- Website copy edited in Admin → Content. Only wording that differs from the
+-- original in lib/content.ts is stored; key is "<page>.<field>".
+CREATE TABLE IF NOT EXISTS content (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE INDEX IF NOT EXISTS items_category_idx ON items (category);
 CREATE INDEX IF NOT EXISTS items_status_idx   ON items (status);
 CREATE INDEX IF NOT EXISTS requests_created_idx ON requests (created_at DESC);
-CREATE INDEX IF NOT EXISTS requests_return_idx  ON requests (return_date);
+CREATE INDEX IF NOT EXISTS requests_item_idx  ON requests (item_id);
+CREATE INDEX IF NOT EXISTS lendings_item_idx  ON lendings (item_id);
+CREATE INDEX IF NOT EXISTS lendings_lent_idx  ON lendings (lent_at DESC);

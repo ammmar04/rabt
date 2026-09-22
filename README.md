@@ -31,22 +31,38 @@ Everything happens at **/admin** — no spreadsheets, no code, no redeploys.
 
 | To… | Do this |
 |---|---|
-| Add a garment | **Items → Add item**, drag in a photo, fill the form, save. It is live immediately. |
-| Edit a garment | **Items →** click its name. |
-| Remove a garment | **Items → Remove.** It disappears from the public site; past requests keep their history. |
-| Mark something borrowed / back | **Items →** the *Set availability* dropdown. Saves on change. |
-| Record a handover | **Requests →** fill in *Expected return* (date and time) and save. That marks the request borrowed and starts tracking the return. |
-| Move a request along | **Requests →** the *Status* dropdown (Request received → … → Returned). The borrower's My Rabt page updates too. |
+| Answer a new request | **Requests.** A request puts its garment **on hold** straight away, so nobody else can request it. Use the WhatsApp, Call or Email buttons on the card to contact the borrower, then **Mark confirmed**. The request is only a confirmed booking once you have done this. |
+| Cancel a request | **Requests → Cancel request** (withdrawn, duplicate…) or **Couldn't fulfil** (no reply, didn't collect…), with a reason. The garment goes back on the rail unless its physical status was changed in the meantime. |
+| Record a handover | **Requests → Hand over.** Enter the return date (and time, if agreed). This opens a lending record and marks the garment borrowed. |
 | See what is due back | **Returns.** Grouped into overdue, due today, due soon, no date yet and returned, with a reminder across the top of every admin page. |
-| Take a garment back | **Returns → Mark returned.** The garment goes straight back on the rail. |
-| Reword the catalogue page | **Content.** Heading, the text under it and the no-results message. Clear a field to get the original wording back. |
+| Take a garment back | **Returns → Mark returned**, choosing where it goes next — back on the rail, out for wash or under repair. |
+| Add a garment | **Items → Add item.** Give it your own ID (the number on its tag — it is checked for duplicates and can't be changed later), drag in a photo, fill the form, save. |
+| Edit a garment | **Items →** click its name. |
+| Change where a garment physically is | **Items →** the *Physical status* dropdown: Available, On hold, Borrowed, Under repair, Out for wash. Saves on change and never touches requests or lending history. |
+| Remove a garment | **Items → Remove.** It disappears from the public site; its request and lending history stays. |
+| See the whole history | **Request & Lending History.** Totals, month-by-month activity, reasons requests didn't go ahead, lends per garment, every lending and every request — with CSV downloads for reports. |
+| Change website wording | **Content.** Pick a page (Home, Catalogue, About, How it works, Contribute, Borrowing, Privacy), edit, save. **Restore original** puts any field back. |
 | Change contact or payment details | **Settings.** These feed the public site directly. |
 
-Item IDs (`R-206`) are assigned automatically per category.
+**Two statuses, kept apart.** A *request* moves through Awaiting confirmation →
+Confirmed → Borrowed → Returned (or Cancelled / Unfulfilled). A *garment* has a
+physical status of its own. Requests change the garment's status as they go —
+hold, handover, return — but the team can change a garment by hand at any time,
+and a garment can only be requested while it is Available with no open request.
 
 **One row per garment.** A suit in size 40 and the same suit in size 42 are two
-separate items with their own id, availability and borrowing history — not one
-item with a list of sizes. Adding a second size means adding a second item.
+separate items with their own ID, status and borrowing history — not one item
+with a list of sizes. Adding a second size means adding a second item.
+
+**History is permanent.** Every handover is its own lending record, kept with its
+expected and actual return dates, whatever happens to the garment afterwards.
+Closed requests — returned, cancelled or unfulfilled — are never deleted. To honour
+a request to forget someone, use **Remove details** on their request in History:
+the name and contact detail go, the record of what was borrowed and when stays.
+
+**Adding an editable page.** Page wording is declared in `lib/content.ts`. Adding
+a page (or a field) there is enough for it to appear under Content; the public
+page reads it with `getPageCopy("<page>")`.
 
 ## Going live on Vercel
 
@@ -73,14 +89,15 @@ app/
   page.tsx                home
   catalogue/              browse + filters
   item/[id]/              item page
-  borrow/[id]/            the 3-step request flow (collect, contact, contribute)
+  borrow/[id]/            the 3-step request flow (collect, contact, contribute & send)
   dashboard/              My Rabt — borrower's own requests
   how-it-works, about, contribute, privacy
   admin/                  password-gated portal
-    page.tsx              requests, status, handover return date
-    returns/              what is due back, grouped by how soon
-    items/                list, add, edit
-    content/              catalogue page wording
+    page.tsx              open requests: confirm, hand over, cancel
+    returns/              what is out and due back, grouped by how soon
+    items/                list, add, edit, physical status
+    history/              Request & Lending History, plus CSV export
+    content/              website wording, page by page
     settings/             contact, payment, collection times
   actions.ts              public server actions (submit + look up requests)
   admin/actions.ts        admin server actions (all call requireAdmin)
@@ -91,8 +108,11 @@ lib/
   auth.ts                 admin password + signed session cookie
   storage.ts              Vercel Blob, or local folder in dev
   seed.ts                 first-run data from data/inventory.json
-  migrate.ts              splits pre-existing multi-size items into one row each
-  types.ts                shared types + helpers
+  migrate.ts              brings older databases up to the current shape
+  types.ts                shared types, statuses, dates (campus timezone)
+  validate.ts, forms.ts   validation, shared by the forms and the server
+  content.ts              every editable page, its fields and original wording
+  history.ts              the history figures, counted from the records
 
 db/schema.sql             tables (idempotent)
 public/img/               the generated placeholder artwork
@@ -111,14 +131,16 @@ scripts/gen_images.py     regenerates that artwork if you want more of it
   over, and it then drives the Returns view and the "expected back" note on the
   public item page.
 - **No user accounts.** The borrower's dashboard works by remembering its own
-  reference numbers in the browser and asking the server for just those. Nothing
-  identifying is stored, and there are no public lists of who borrowed what.
+  reference numbers in the browser and asking the server for just those.
+- **Dates are campus dates.** "Due today", the collection days offered and every
+  timestamp in admin are worked out in Pakistan time (`SITE_TZ` in `lib/types.ts`),
+  whatever timezone the server runs in.
 - **Unavailable items stay visible** so people can see the whole wardrobe, but are
   clearly marked and cannot be requested.
 
 ## Photos
 
-Items added through the portal use real uploaded photos (JPG, PNG, WebP or SVG, up
+Items added through the portal use real uploaded photos (JPG, PNG, WebP, AVIF or HEIC, up
 to 8 MB). The pieces that shipped with the project use generated vector artwork so
 the catalogue is never full of broken images before the team has photographed
 anything. Replace them by editing each item and uploading a real photo.

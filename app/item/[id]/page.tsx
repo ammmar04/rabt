@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getCategories, getItem, getItems } from "@/lib/queries";
+import { getCategories, getItem, getItems, getPageCopy } from "@/lib/queries";
 import ItemDetail from "@/components/ItemDetail";
 import ItemCard from "@/components/ItemCard";
 
@@ -26,7 +26,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
   const item = await getItem(id);
   if (!item || item.archived) notFound();
 
-  const [categories, all] = await Promise.all([getCategories(), getItems()]);
+  const [categories, all, copy] = await Promise.all([getCategories(), getItems(), getPageCopy("borrowing")]);
   const cat = categories.find((c) => c.slug === item.category);
   const related = all.filter((x) => x.category === item.category && x.id !== item.id).slice(0, 4);
   const singular = new Map(categories.map((c) => [c.slug, c.singular]));
@@ -39,7 +39,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
         <span>{item.name}</span>
       </nav>
 
-      <ItemDetail item={item} categoryName={cat?.name ?? "items"} />
+      <ItemDetail item={item} categoryName={cat?.name ?? "items"} borrowNote={copy.t("item_note")} />
 
       {related.length > 0 && (
         <section className="section--tight" style={{ marginTop: "2rem" }}>

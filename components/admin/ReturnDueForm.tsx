@@ -1,60 +1,45 @@
 "use client";
 
-import { useTransition } from "react";
-import { saveExpectedReturn } from "@/app/admin/actions";
+import { useActionState } from "react";
+import { saveLendingDue } from "@/app/admin/actions";
+import { addDays } from "@/lib/types";
+import { fromFormData, validateReturnDue, type ActionState } from "@/lib/forms";
+import FieldError from "@/components/FieldError";
+import { useFormErrors } from "./useFormErrors";
 
-/**
- * The expected return the team agrees with the borrower at handover. Kept as
- * two plain pickers so it can be filled in at the counter in a few seconds.
- */
+/** Changes the agreed return on a garment that is out on loan. */
 export default function ReturnDueForm({
-  requestRef,
-  date,
-  time,
-  compact = false,
+  lendingId, date, time, lentOn,
 }: {
-  requestRef: string;
+  lendingId: number;
   date: string | null;
   time: string;
-  /** Inline in a table row rather than stacked with its own labels. */
-  compact?: boolean;
+  /** YYYY-MM-DD the garment was handed over; the return can't be before it. */
+  lentOn: string;
 }) {
-  const [pending, start] = useTransition();
+  const [state, action, pending] = useActionState(saveLendingDue, {} as ActionState);
+  const { errors, onSubmit, onInput } = useFormErrors(state.fields, (fd) =>
+    validateReturnDue(fromFormData(fd), { from: lentOn }).errors, action
+  );
 
   return (
-    <form
-      className="due-form"
-      data-compact={compact ? "1" : "0"}
-      onSubmit={(e) => {
-        e.preventDefault();
-        const fd = new FormData(e.currentTarget);
-        start(() => { void saveExpectedReturn(fd); });
-      }}
-    >
-      <input type="hidden" name="ref" value={requestRef} />
+    <form onSubmit={onSubmit} onInput={onInput} noValidate className="due-form" data-compact="1">
+      <input type="hidden" name="lending" value={lendingId} />
       <label className="due-form__f">
-        {!compact && <span className="label">Date</span>}
-        <input
-          className="input input--sm"
-          type="date"
-          name="return_date"
-          aria-label="Expected return date"
-          defaultValue={date ?? ""}
-        />
+        <input className="input input--sm" type="date" name="due_date" aria-label="Expected return date"
+          defaultValue={date ?? ""} min={lentOn} max={addDays(lentOn, 365)} required
+          aria-invalid={Boolean(errors.due_date)} />
       </label>
       <label className="due-form__f">
-        {!compact && <span className="label">Time</span>}
-        <input
-          className="input input--sm"
-          type="time"
-          name="return_time"
-          aria-label="Expected return time"
-          defaultValue={time}
-        />
+        <input className="input input--sm" type="time" name="due_time" aria-label="Expected return time"
+          defaultValue={time} aria-invalid={Boolean(errors.due_time)} />
       </label>
       <button className="btn btn--quiet btn--sm" type="submit" disabled={pending}>
         {pending ? "Saving…" : "Save"}
       </button>
+      {(errors.due_date || errors.due_time) && (
+        <div className="due-form__err"><FieldError message={errors.due_date ?? errors.due_time} /></div>
+      )}
     </form>
   );
 }

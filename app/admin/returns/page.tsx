@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { getBorrowings } from "@/lib/queries";
+import { getLendingsForReturns } from "@/lib/queries";
 import {
-  DUE_SOON_DAYS, STATUS_FLOW, dueLabel, groupReturns, itemTitle, needsAttention,
-  niceDate, type Request, type ReturnBucket,
+  DUE_SOON_DAYS, dueLabel, formatDay, groupReturns, itemTitle, needsAttention,
+  niceDate, siteDateOf, type Lending, type ReturnBucket,
 } from "@/lib/types";
+import { formatPhone } from "@/lib/validate";
 import ReturnDueForm from "@/components/admin/ReturnDueForm";
 import MarkReturnedButton from "@/components/admin/MarkReturnedButton";
 
@@ -15,7 +16,7 @@ const GROUPS: { key: ReturnBucket; title: string; hint: string }[] = [
   { key: "soon", title: "Due soon", hint: `Coming back within ${DUE_SOON_DAYS} days.` },
   { key: "undated", title: "No return date yet", hint: "Handed over without a return agreed — add one." },
   { key: "scheduled", title: "Later", hint: "Out on loan, due further ahead." },
-  { key: "returned", title: "Returned", hint: "Back on the rail." },
+  { key: "returned", title: "Returned", hint: "Back in the last 30 days. Every lending stays in Request & Lending History." },
 ];
 
 const DUE_BADGE: Record<ReturnBucket, string> = {
@@ -27,78 +28,50 @@ const DUE_BADGE: Record<ReturnBucket, string> = {
   returned: "badge badge--available",
 };
 
-function Row({ r, bucket }: { r: Request; bucket: ReturnBucket }) {
+function Row({ l, bucket }: { l: Lending; bucket: ReturnBucket }) {
   const done = bucket === "returned";
+  const title = itemTitle({ name: l.item_name, size: l.item_size });
+  const contact = l.contact_method === "WhatsApp" ? formatPhone(l.contact_value ?? "") : l.contact_value;
   return (
     <tr>
       <td className="td--title">
-        {r.item_id ? (
-          <Link href={`/item/${r.item_id}`} className="tlink" style={{ border: 0 }}>
-            {itemTitle({ name: r.item_name, size: r.size })}
-          </Link>
-        ) : (
-          itemTitle({ name: r.item_name, size: r.size })
-        )}
-        <div className="tbl__sub">{r.item_id ? `${r.item_id} · ` : ""}{r.ref}</div>
+        <Link href={`/item/${l.item_id}`} className="tlink" style={{ border: 0 }}>{title}</Link>
+        <div className="tbl__sub">{l.item_id}{l.request_ref ? ` · ${l.request_ref}` : ""}</div>
       </td>
       <td className="td--wrap">
-        {r.person_name || <span className="muted">&mdash;</span>}
-        <div className="tbl__sub">
-          {r.contact_method ? `${r.contact_method}: ${r.contact_value}` : ""}
-        </div>
+        {l.borrower_name || <span className="muted">&mdash;</span>}
+        <div className="tbl__sub">{contact ? `${l.contact_method}: ${contact}` : ""}</div>
       </td>
+      <td>{formatDay(l.lent_at)}</td>
       <td>
         {done ? (
-          r.return_date ? `${niceDate(r.return_date)}${r.return_time ? `, ${r.return_time}` : ""}`
-                        : <span className="muted">&mdash;</span>
+          l.due_date ? `${niceDate(l.due_date)}${l.due_time ? `, ${l.due_time}` : ""}` : <span className="muted">&mdash;</span>
         ) : (
-          <ReturnDueForm requestRef={r.ref} date={r.return_date} time={r.return_time} compact />
+          <ReturnDueForm lendingId={l.id} date={l.due_date} time={l.due_time} lentOn={siteDateOf(l.lent_at) ?? ""} />
         )}
       </td>
       <td>
-        {done ? (
-          <span className={DUE_BADGE.returned}>
-            Returned{r.returned_at ? ` ${niceDate(r.returned_at)}` : ""}
-          </span>
-        ) : (
-          <>
-            <span className={DUE_BADGE[bucket]}>{dueLabel(r.return_date)}</span>
-            <div className="tbl__sub">{STATUS_FLOW[r.status] ?? "Borrowed"}</div>
-          </>
-        )}
+        {done
+          ? <span className={DUE_BADGE.returned}>Returned {formatDay(l.returned_at)}</span>
+          : <span className={DUE_BADGE[bucket]}>{dueLabel(l.due_date)}</span>}
       </td>
-      <td>{done ? null : <MarkReturnedButton requestRef={r.ref} />}</td>
+      <td>{done ? null : <MarkReturnedButton lendingId={l.id} />}</td>
     </tr>
   );
 }
 
 export default async function AdminReturns() {
-  const rows = await getBorrowings();
+  const rows = await getLendingsForReturns();
   const groups = groupReturns(rows);
   const attention = needsAttention(rows);
-
-  // Most recent returns only: the full history lives on the Requests tab.
-  groups.returned = groups.returned.slice(0, 15);
 
   return (
     <>
       <div className="stat-row" style={{ marginBottom: "2rem" }}>
-        <div className="stat">
-          <div className="stat__n">{groups.overdue.length}</div>
-          <div className="stat__l">Overdue</div>
-        </div>
-        <div className="stat">
-          <div className="stat__n">{groups.today.length}</div>
-          <div className="stat__l">Due today</div>
-        </div>
-        <div className="stat">
-          <div className="stat__n">{groups.soon.length}</div>
-          <div className="stat__l">Due within {DUE_SOON_DAYS} days</div>
-        </div>
-        <div className="stat">
-          <div className="stat__n">{groups.undated.length}</div>
-          <div className="stat__l">Awaiting return date</div>
-        </div>
+        <div className="stat"><div className="stat__n">{groups.overdue.length}</div><div className="stat__l">Overdue</div></div>
+        <div className="stat"><div className="stat__n">{groups.today.length}</div><div className="stat__l">Due today</div></div>
+        <div className="stat"><div className="stat__n">{groups.soon.length}</div><div className="stat__l">Due within {DUE_SOON_DAYS} days</div></div>
+        <div className="stat"><div className="stat__n">{groups.undated.length}</div><div className="stat__l">Awaiting return date</div></div>
       </div>
 
       {attention.total === 0 && (
@@ -110,10 +83,8 @@ export default async function AdminReturns() {
 
       {rows.length === 0 ? (
         <div className="blank">
-          <p>Nothing has been handed over yet. Set a return date on a request and it appears here.</p>
-          <Link className="btn btn--primary" style={{ marginTop: "1.3rem" }} href="/admin">
-            Go to requests
-          </Link>
+          <p>Nothing is out on loan. Hand a request over and it appears here.</p>
+          <Link className="btn btn--primary" style={{ marginTop: "1.3rem" }} href="/admin">Go to requests</Link>
         </div>
       ) : (
         GROUPS.filter((g) => groups[g.key].length > 0).map((g) => (
@@ -121,19 +92,16 @@ export default async function AdminReturns() {
             <div className="label label--rule" style={{ marginBottom: ".5rem" }}>
               {g.title} &mdash; {groups[g.key].length}
             </div>
-            <p className="muted" style={{ fontSize: "var(--fs-small)", marginBottom: "1rem" }}>
-              {g.hint}
-            </p>
+            <p className="muted" style={{ fontSize: "var(--fs-small)", marginBottom: "1rem" }}>{g.hint}</p>
             <div className="tbl-wrap">
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Garment</th><th>Borrower</th><th>Expected return</th>
-                    <th>Due</th><th></th>
+                    <th>Garment</th><th>Borrower</th><th>Lent on</th><th>Expected return</th><th>Due</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {groups[g.key].map((r) => <Row key={r.ref} r={r} bucket={g.key} />)}
+                  {groups[g.key].map((l) => <Row key={l.id} l={l} bucket={g.key} />)}
                 </tbody>
               </table>
             </div>

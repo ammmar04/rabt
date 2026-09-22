@@ -21,7 +21,7 @@ const sans = Karla({
 export const metadata: Metadata = {
   title: "Rabt — Borrow what you need",
   description:
-    "A shared wardrobe of formal clothing, free to borrow for anyone on campus. No eligibility check, no forms.",
+    "A shared wardrobe of formal clothing, free to borrow for anyone on campus.",
 };
 
 export const viewport: Viewport = {

@@ -6,6 +6,11 @@ A shared wardrobe of formal clothing for a university community. Anyone can borr
 no eligibility check, no proof of need, no explaining why. Built to read as a
 well-designed clothing service that happens to be free, not as a charity portal.
 
+**At a glance:** This is a full-stack Next.js application with a public catalogue,
+borrowing flow, and an admin workspace for inventory, requests, returns, and
+reporting. The data layer uses Postgres in production and PGlite for local
+development, so the project can be explored without cloud credentials.
+
 Next.js app with a real database, photo uploads and an admin portal, so the team
 running it can add, edit and remove items without touching code or redeploying.
 

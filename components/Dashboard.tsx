@@ -1,5 +1,6 @@
 "use client";
 
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { lookupRequests } from "@/app/actions";
@@ -103,7 +104,7 @@ export default function Dashboard() {
                 <div className="bcard__media">
                   {r.item_image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.item_image} alt="" />
+                    <img src={imageSrc(r.item_image)} alt="" />
                   ) : null}
                 </div>
                 <div>

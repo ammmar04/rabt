@@ -1,7 +1,9 @@
 "use client";
 
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { prepareUpload } from "@/lib/prepare-upload";
 import { saveItem } from "@/app/admin/actions";
 import { ITEM_STATUSES, SIZE_OPTIONS, itemStatus, type Category, type Item } from "@/lib/types";
 import { checkPhoto, fromFormData, validateItem, type ActionState } from "@/lib/forms";
@@ -9,22 +11,40 @@ import FieldError from "@/components/FieldError";
 import { useFormErrors } from "./useFormErrors";
 
 function PhotoField({
-  name, label, hint, existing, error,
+  name, label, hint, existing, error, onPreparing,
 }: {
   name: string; label: string; hint: string; existing?: string; error?: string;
+  onPreparing: (name: string, preparing: boolean, failed?: boolean) => void;
 }) {
   const [preview, setPreview] = useState<string | null>(existing || null);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
+  const sequence = useRef(0);
+  useEffect(() => () => { if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview); }, [preview]);
 
-  function take(files: FileList | null) {
+  async function take(files: FileList | null) {
     const f = files?.[0];
     if (!f) return;
-    setPreview(URL.createObjectURL(f));
-    if (input.current && files) {
-      input.current.files = files;
-      // Lets the form clear this field's message once a new photo is chosen.
+    const request = ++sequence.current;
+    if (input.current) input.current.value = "";
+    setPreparing(true); onPreparing(name, true); setPhotoError(undefined);
+    let failed = false;
+    try {
+      const invalid = checkPhoto(f, { required: true });
+      if (invalid) throw new Error(invalid);
+      const photo = await prepareUpload(f);
+      if (request !== sequence.current || !input.current) return;
+      const transfer = new DataTransfer(); transfer.items.add(photo);
+      input.current.files = transfer.files;
+      setPreview(URL.createObjectURL(photo));
       input.current.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (e) {
+      failed = true;
+      if (request === sequence.current) setPhotoError(e instanceof Error ? e.message : "That photo could not be prepared.");
+    } finally {
+      if (request === sequence.current) { setPreparing(false); onPreparing(name, false, failed); }
     }
   }
 
@@ -37,7 +57,7 @@ function PhotoField({
         data-field={name}
         tabIndex={0}
         role="button"
-        aria-invalid={Boolean(error)}
+        aria-invalid={Boolean(error || photoError)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.current?.click(); } }}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
@@ -46,7 +66,7 @@ function PhotoField({
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img className="drop__preview" src={preview} alt="" />
+          <img className="drop__preview" src={imageSrc(preview)} alt="" />
         ) : (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -55,7 +75,7 @@ function PhotoField({
           </svg>
         )}
         <span className="drop__text">
-          {preview ? "Click or drop to replace" : "Click to choose, or drag a photo here"}
+          {preparing ? "Preparing photo…" : preview ? "Click or drop to replace" : "Click to choose, or drag a photo here"}
         </span>
       </div>
       <input
@@ -67,7 +87,7 @@ function PhotoField({
         hidden
         onChange={(e) => take(e.target.files)}
       />
-      {error ? <FieldError message={error} /> : <span className="hint">{hint}</span>}
+      {photoError || error ? <FieldError message={photoError || error} /> : <span className="hint">{hint}</span>}
     </div>
   );
 }
@@ -82,6 +102,14 @@ export default function ItemForm({
   const [state, action, pending] = useActionState(saveItem, {} as ActionState);
   const [status, setStatus] = useState<string>(item?.status ?? "available");
   const isNew = !item;
+  const [preparingPhotos, setPreparingPhotos] = useState<Record<string, boolean>>({});
+  const [failedPhotos, setFailedPhotos] = useState<Record<string, boolean>>({});
+  const preparing = Object.values(preparingPhotos).some(Boolean);
+  const failedPhoto = Object.values(failedPhotos).some(Boolean);
+  const onPreparing = (name: string, value: boolean, failed = false) => {
+    setPreparingPhotos(current => ({ ...current, [name]: value }));
+    setFailedPhotos(current => ({ ...current, [name]: failed }));
+  };
 
   const { errors, onSubmit, onInput } = useFormErrors(state.fields, (fd) => {
     const { errors: e } = validateItem(fromFormData(fd), {
@@ -102,7 +130,7 @@ export default function ItemForm({
   const heldBy = item?.status === "on_hold" ? item.hold_ref : null;
 
   return (
-    <form onSubmit={onSubmit} onInput={onInput} noValidate className="admin-form">
+    <form onSubmit={e => { if (preparing || failedPhoto) e.preventDefault(); else onSubmit(e); }} onInput={onInput} noValidate className="admin-form">
       {item && <input type="hidden" name="editing" value={item.id} />}
 
       <div className="admin-form__grid">
@@ -113,6 +141,7 @@ export default function ItemForm({
             hint="The main image people see. Portrait works best (roughly 4:5). JPG, PNG, WebP or HEIC, up to 8 MB."
             existing={item?.image_url}
             error={errors.photo}
+            onPreparing={onPreparing}
           />
           <PhotoField
             name="photo2"
@@ -120,6 +149,7 @@ export default function ItemForm({
             hint="A close-up of the fabric or a detail, shown as a second thumbnail."
             existing={item?.detail_url}
             error={errors.photo2}
+            onPreparing={onPreparing}
           />
         </div>
 
@@ -281,8 +311,8 @@ export default function ItemForm({
 
       <div className="btn-row" style={{ justifyContent: "space-between", marginTop: "1.6rem" }}>
         <Link className="btn btn--quiet" href="/admin/items">Cancel</Link>
-        <button className="btn btn--primary btn--lg" type="submit" disabled={pending}>
-          {pending ? "Saving…" : item ? "Save changes" : "Add to the wardrobe"}
+        <button className="btn btn--primary btn--lg" type="submit" disabled={pending || preparing || failedPhoto}>
+          {preparing ? "Preparing photos…" : pending ? "Saving…" : item ? "Save changes" : "Add to the wardrobe"}
         </button>
       </div>
     </form>

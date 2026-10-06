@@ -1,5 +1,6 @@
 "use client";
 
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { submitBorrowRequest } from "@/app/actions";
@@ -193,7 +194,7 @@ export default function BorrowFlow({
     <>
       <div className="summary">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={item.image_url} alt="" />
+        <img src={imageSrc(item.image_url)} alt="" />
         <div>
           <div className="summary__t">{itemTitle(item)}</div>
           <div className="summary__m">{summaryBits.filter(Boolean).join(" · ")}</div>

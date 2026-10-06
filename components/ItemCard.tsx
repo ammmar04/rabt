@@ -1,3 +1,4 @@
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
 import StatusBadge from "./StatusBadge";
 import { itemStatus, itemTitle, niceDate, type Item } from "@/lib/types";
@@ -34,7 +35,7 @@ export default function ItemCard({
         <Link href={`/item/${item.id}`} aria-label={`View ${title}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={item.image_url || "/img/items/placeholder.svg"}
+            src={imageSrc(item.image_url) || "/img/items/placeholder.svg"}
             alt={item.name}
             width={800}
             height={1000}

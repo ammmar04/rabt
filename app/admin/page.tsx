@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { counts, getWaitingRequests } from "@/lib/queries";
 import { dbKind } from "@/lib/db";
-import { blobConfigured } from "@/lib/storage";
+import { imageStorageConfigured } from "@/lib/storage";
 import {
   ago, daysUntil, formatDateTime, fullDate, itemStatus, itemTitle, requestLabel,
   type Request,
@@ -107,11 +107,9 @@ export default async function AdminRequests() {
           <code>DATABASE_URL</code> for the real thing.
         </div>
       )}
-      {!blobConfigured() && (
+      {!imageStorageConfigured() && (
         <div className="note note--brass" style={{ marginBottom: "1.6rem" }}>
-          <strong>Photo storage not connected.</strong> Uploads are being written to a local
-          folder. Add a Blob store in Vercel (Storage → Blob) before deploying, or photos
-          will not save.
+          <strong>Photo storage not connected.</strong> Connect photo storage before accepting new uploads. Please contact the site administrator.
         </div>
       )}
 

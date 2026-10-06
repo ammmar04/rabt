@@ -1,5 +1,6 @@
 "use client";
 
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
 import { useState } from "react";
 import StatusBadge from "./StatusBadge";
@@ -15,7 +16,7 @@ export default function ItemDetail({
   /** Editable line under the Borrow button (Content → Borrowing). */
   borrowNote: string;
 }) {
-  const gallery = [item.image_url, item.detail_url].filter(Boolean);
+  const gallery = [item.image_url, item.detail_url].map(imageSrc).filter(Boolean);
   const [shown, setShown] = useState(gallery[0] || "");
   const [helpOpen, setHelpOpen] = useState(false);
 

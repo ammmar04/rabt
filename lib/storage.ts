@@ -1,13 +1,14 @@
 /**
  * Image storage.
  *
- * Production : Vercel Blob (set BLOB_READ_WRITE_TOKEN — added automatically
- *              when you create a Blob store on the project)
+ * Production : Cloudflare R2 when explicitly selected; Vercel Blob for rollback
  * Local dev  : writes into public/uploads so the portal works with no setup
  */
 import "server-only";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { optimizePhoto } from "./optimize-photo";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -41,7 +42,22 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "photo";
 }
 
-export function blobConfigured(): boolean {
+function r2Configuration() {
+  const accountId = process.env.R2_ACCOUNT_ID?.trim();
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY?.trim();
+  const bucket = process.env.R2_BUCKET_NAME?.trim();
+  const publicBase = process.env.NEXT_PUBLIC_IMAGE_BASE_URL?.trim().replace(/\/+$/, "");
+  if (!accountId || !/^[a-f0-9]{32}$/.test(accountId) || !accessKeyId || !secretAccessKey || !bucket || !publicBase) return null;
+  try {
+    const url = new URL(publicBase);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
+  } catch { return null; }
+  return { accountId, accessKeyId, secretAccessKey, bucket, publicBase };
+}
+
+export function imageStorageConfigured(): boolean {
+  if (process.env.IMAGE_STORAGE_PROVIDER === "r2") return Boolean(r2Configuration());
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
 
@@ -58,13 +74,35 @@ export async function saveUpload(file: File, prefix = "item"): Promise<string> {
     throw new Error("That file is not a photo we recognise. Please upload a JPG, PNG, WebP or HEIC image.");
   }
 
-  const name = `${slug(prefix)}-${Date.now().toString(36)}.${kind.ext}`;
+  const name = `${slug(prefix)}-${randomUUID()}.webp`;
+  const photo = await optimizePhoto(bytes);
 
-  if (blobConfigured()) {
+  if (process.env.IMAGE_STORAGE_PROVIDER === "r2") {
+    const config = r2Configuration();
+    if (!config) throw new Error("Photo storage is not connected. Please contact the site administrator.");
+    const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = new S3Client({
+      region: "auto",
+      endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+      maxAttempts: 3,
+    });
+    try {
+      await client.send(new PutObjectCommand({
+        Bucket: config.bucket, Key: `items/${name}`, Body: photo,
+        ContentType: "image/webp", CacheControl: "public, max-age=31536000, immutable",
+      }));
+    } catch {
+      throw new Error("The photo could not be saved. Please try again in a moment.");
+    } finally { client.destroy(); }
+    return `${config.publicBase}/items/${name}`;
+  }
+
+  if (imageStorageConfigured()) {
     const { put } = await import("@vercel/blob");
-    const blob = await put(`items/${name}`, bytes, {
+    const blob = await put(`items/${name}`, photo, {
       access: "public",
-      contentType: kind.mime,
+      contentType: "image/webp",
       // never let a caller-supplied name collide with or overwrite another
       addRandomSuffix: true,
     });
@@ -73,13 +111,12 @@ export async function saveUpload(file: File, prefix = "item"): Promise<string> {
 
   if (isProd) {
     throw new Error(
-      "Image storage is not configured. Add a Blob store to this project " +
-        "(Vercel → Storage → Blob) so photos have somewhere to live."
+      "Photo storage is not connected. Please contact the site administrator."
     );
   }
 
   const dir = join(process.cwd(), "public", "uploads");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, name), bytes);
+  await writeFile(join(dir, name), photo);
   return `/uploads/${name}`;
 }

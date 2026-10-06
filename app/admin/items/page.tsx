@@ -1,3 +1,4 @@
+import { imageSrc } from "@/lib/image-urls";
 import Link from "next/link";
 import { getCategories, getItems } from "@/lib/queries";
 import { ITEM_STATUSES, itemStatus, niceDate } from "@/lib/types";
@@ -44,7 +45,7 @@ export default async function AdminItems() {
                   <tr key={it.id}>
                     <td>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img className="thumb" src={it.image_url} alt="" />
+                      <img className="thumb" src={imageSrc(it.image_url)} alt="" />
                     </td>
                     <td>{it.id}</td>
                     <td className="td--title">

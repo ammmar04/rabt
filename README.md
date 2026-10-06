@@ -73,7 +73,9 @@ page reads it with `getPageCopy("<page>")`.
 
 1. Import the repo at [vercel.com/new](https://vercel.com/new).
 2. **Storage → Neon** — create a Postgres database. Vercel sets `DATABASE_URL`.
-3. **Storage → Blob** — create a Blob store. Vercel sets `BLOB_READ_WRITE_TOKEN`.
+3. Create a Standard Cloudflare R2 bucket and connect a custom image domain. Add the
+   R2 variables from `.env.example` in Vercel; keep the access keys private. Only
+   `NEXT_PUBLIC_IMAGE_BASE_URL` is public. Set `IMAGE_STORAGE_PROVIDER=r2`.
 4. **Settings → Environment Variables** — add `ADMIN_PASSWORD` (pick a strong one and
    share it with the team).
 5. Deploy.
@@ -84,7 +86,7 @@ Tables are created on first request, and an empty database seeds itself from
 Two deliberate safety behaviours:
 
 - With no `ADMIN_PASSWORD` in production, `/admin` is **locked**, not open.
-- With no `DATABASE_URL` or Blob token in production, the app says so plainly rather
+- With no `DATABASE_URL` or configured image storage in production, the app says so plainly rather
   than silently writing somewhere that will vanish.
 
 ## Structure
@@ -111,7 +113,9 @@ lib/
   db.ts                   Neon in production, PGlite locally
   queries.ts              every SQL query lives here
   auth.ts                 admin password + signed session cookie
-  storage.ts              Vercel Blob, or local folder in dev
+  storage.ts              Cloudflare R2, legacy Blob, or local folder in dev
+  image-urls.ts           verified legacy-photo mapping, without database edits
+  optimize-photo.ts       raster validation, orientation and WebP compression
   seed.ts                 first-run data from data/inventory.json
   migrate.ts              brings older databases up to the current shape
   types.ts                shared types, statuses, dates (campus timezone)
@@ -167,3 +171,34 @@ The header renders the wordmark as text. To use the actual logo, drop it at
   (Clerk drops in cleanly here).
 - `data/inventory.json` is only a first-run seed. Once the database has data, it is
   ignored — the database is the source of truth.
+
+## Existing photo migration and rollback
+
+The upload form reduces each selected photo to at most 1 MB before submission,
+so two photos fit below Vercel's 4.5 MB request limit. It preserves orientation,
+never enlarges a photo, and blocks saving while preparation is pending or fails.
+Unsupported browser decoders (for example, some HEIC photos) show a request to
+choose JPG, PNG, WebP or AVIF. The server validates and compresses the submitted
+raster again before storage; the existing admin authentication still applies.
+
+Original Blob objects and database URLs remain intact. `lib/migrated-images.json`
+contains only verified objects. Rendering replaces those exact legacy URLs with
+objects under `NEXT_PUBLIC_IMAGE_BASE_URL` across the catalogue, item view,
+borrowing, request dashboard and admin previews. Other URLs stay unchanged.
+Uploads still require the existing admin authentication and now produce oriented,
+metadata-free WebP photos at most 1600 pixels per side. R2 failures are shown as a
+safe upload error and never silently fall back to Blob.
+
+Prepare copies with `node scripts/prepare-image-migration.mjs BACKUP_DIR OUTPUT_DIR`
+after a full checksum-backed original backup. Then load private R2 credentials in
+`.env.local` and run `node scripts/upload-image-migration.mjs OUTPUT_DIR`. The
+uploader refuses to overwrite different content and downloads every copy to
+verify its checksum and headers. Keep backup directories outside the repository.
+One malformed historical 68-byte test PNG is preserved byte-for-byte.
+
+Verify the custom domain and each mapped photo before deploying. To roll back
+legacy rendering, clear `NEXT_PUBLIC_IMAGE_BASE_URL` and redeploy; to revert future
+uploads, unset `IMAGE_STORAGE_PROVIDER` with the retained `BLOB_READ_WRITE_TOKEN`.
+Any photos uploaded to R2 after cutover still need their R2 domain kept active.
+Do not remove originals or end the Vercel trial until both existing photos and a
+new portal upload have been verified in production.
